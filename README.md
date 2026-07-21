@@ -41,6 +41,25 @@
   <p><em>827 businesses in Greenwich Village, every website checked live. Red = a verified reason to call.</em></p>
 </div>
 
+## Quick start
+
+No clone, no install. With [uv](https://docs.astral.sh/uv/), one line makes `leadshoot` runnable from anywhere:
+
+```bash
+alias leadshoot='uvx --from "leadshoot[all] @ git+https://github.com/moasq/leadshoot" leadshoot'
+```
+
+Then point it at a city and go:
+
+```bash
+leadshoot icp new --name web --area "Austin, TX" \
+    --categories dentist --service website_design --json
+leadshoot find --icp web --json      # discover, live-check, rank
+leadshoot serve                      # live map of your leads at localhost:8321
+```
+
+The first run builds an isolated environment automatically (a few seconds), then it is cached and instant. Want a permanent binary instead? `uv tool install "leadshoot[all] @ git+https://github.com/moasq/leadshoot"`. On PyPI soon, then it is simply `uvx leadshoot`.
+
 Paid lead lists sell everyone the same contacts. **LeadShoot computes yours** - and it's
 agent-native the way [Postiz](https://github.com/gitroomhq/postiz-app) is for social:
 you tell your AI what you sell, and it runs discovery, verifies every gap against the
@@ -108,19 +127,7 @@ $ leadshoot niche "I roast specialty coffee beans"
 Gap niches hunt fixable problems. Fit niches invert the score: the thriving café
 that's worthless to a web designer is a top lead for a coffee roaster.
 
-## Quick start
-
-```bash
-git clone https://github.com/moasq/leadshoot && cd leadshoot
-pip install -e ".[all]"
-
-leadshoot icp new                 # what you sell, where, to whom
-leadshoot find --icp <name>       # discover → live-check → rank
-leadshoot enrich --icp <name>     # auto-date leads (RDAP domain records)
-leadshoot mark n123 --stage contacted --note "called"
-leadshoot export --format csv
-leadshoot serve                   # map UI → localhost:8321
-```
+## What a lead tells you
 
 <table>
 <tr>
@@ -132,6 +139,9 @@ leadshoot serve                   # map UI → localhost:8321
 Every lead explains itself: *what's missing* (verified HTTP error, dead domain,
 dormant Instagram), *why it's real* ("34 years in business - proven, and the problem
 is verified"), and *what's still unknown* (`age?` `reviews?`).
+
+The full command set (`enrich`, `mark`, `recheck`, `export`, `mcp`, `serve`) is in
+[INTEGRATIONS.md](INTEGRATIONS.md).
 
 ## How it works
 
