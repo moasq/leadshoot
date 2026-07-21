@@ -1,0 +1,8 @@
+{
+  "id": "pitch-writer",
+  "model": "inherit",
+  "tools": {
+    "allowed": ["Bash", "Read"],
+    "notes": "Bash only for leadshoot show/leads with --json. Writes no engine state; no web access - research belongs to review-analyst/business-researcher."
+  }
+}

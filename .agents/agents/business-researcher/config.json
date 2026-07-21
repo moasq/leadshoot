@@ -1,0 +1,8 @@
+{
+  "id": "business-researcher",
+  "model": "sonnet",
+  "tools": {
+    "allowed": ["Bash", "Read", "WebSearch", "WebFetch"],
+    "notes": "Web tools for public business research; Bash for leadshoot show/review add/mark with --json. May update stage only to hide closed businesses."
+  }
+}

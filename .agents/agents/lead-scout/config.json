@@ -1,0 +1,8 @@
+{
+  "id": "lead-scout",
+  "model": "sonnet",
+  "tools": {
+    "allowed": ["Bash", "Read"],
+    "notes": "Bash is for the leadshoot CLI (read-mostly: status/find/leads/recheck with --json). No mark, no icp writes."
+  }
+}

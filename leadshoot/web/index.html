@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LeadShoot</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  :root {
+    --paper:#f3f5f3; --surface:#fff; --ink:#14201c; --ink-soft:#3c4a45;
+    --ink-faint:#6a7873; --hair:#d6ddd8; --accent:#1c7d6d; --accent-deep:#135649;
+    --hot:#c0392b; --warm:#d68910; --cool:#9aa6a1;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font:15px/1.5 system-ui,-apple-system,sans-serif;
+         background:var(--paper); color:var(--ink); }
+  header { display:flex; align-items:center; gap:16px; flex-wrap:wrap;
+           padding:12px 20px; background:var(--surface);
+           border-bottom:1px solid var(--hair); }
+  header h1 { font-size:17px; margin:0; color:var(--accent-deep); }
+  header h1 span { color:var(--ink-faint); font-weight:400; }
+  #stats { font-size:13px; color:var(--ink-soft); }
+  #live { font-size:12.5px; font-weight:600; display:inline-flex;
+          align-items:center; gap:7px; color:var(--ink-soft); }
+  #live .dot { width:9px; height:9px; border-radius:50%; background:var(--accent);
+               box-shadow:0 0 0 0 rgba(28,125,109,.6); animation:pulse 1.6s infinite; }
+  #live.off .dot { background:var(--cool); animation:none; }
+  @keyframes pulse { 0%{box-shadow:0 0 0 0 rgba(28,125,109,.55);}
+                     70%{box-shadow:0 0 0 8px rgba(28,125,109,0);}
+                     100%{box-shadow:0 0 0 0 rgba(28,125,109,0);} }
+  .controls { margin-left:auto; display:flex; gap:8px; flex-wrap:wrap; }
+  select, input, button {
+    font:inherit; font-size:13px; padding:5px 9px; border:1px solid var(--hair);
+    border-radius:7px; background:var(--surface); color:var(--ink);
+  }
+  button { cursor:pointer; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  main { display:grid; grid-template-columns: 1fr 1fr; height:calc(100vh - 57px); }
+  @media (max-width: 900px){ main { grid-template-columns:1fr; grid-template-rows:45vh 1fr; } }
+  #map { height:100%; }
+  #panel { overflow-y:auto; background:var(--surface); border-left:1px solid var(--hair); }
+  table { width:100%; border-collapse:collapse; font-size:13.5px; }
+  thead th { position:sticky; top:0; background:var(--paper); text-align:left;
+             font-size:11px; text-transform:uppercase; letter-spacing:.06em;
+             color:var(--ink-faint); padding:9px 12px;
+             border-bottom:1px solid var(--hair); }
+  td { padding:8px 12px; border-bottom:1px solid var(--hair); vertical-align:top; }
+  tr:hover { background:var(--paper); cursor:pointer; }
+  tr.fresh { animation:flash 1.2s ease-out; }
+  @keyframes flash { from { background:#e3f0e8; } to { background:transparent; } }
+  .score { font-weight:600; font-variant-numeric:tabular-nums; }
+  .bname { font-weight:600; font-size:14px; }
+  .score-cell { text-align:center; }
+  .score-num { font-weight:700; font-size:18px; font-variant-numeric:tabular-nums; }
+  .conf { display:inline-block; font-size:10px; font-weight:600; padding:1px 6px;
+          border-radius:5px; letter-spacing:.02em; white-space:nowrap; margin-top:3px; }
+  .conf.verified { background:#e3f0e8; color:#2e7d5b; }
+  .conf.likely { background:#eef1ef; color:var(--ink-faint); }
+  ul.miss { list-style:none; margin:2px 0 0; padding:0; display:grid; gap:3px; }
+  ul.miss li { position:relative; padding-left:17px; font-size:12.5px; line-height:1.4;
+               color:var(--ink-soft); }
+  ul.miss li::before { content:"✕"; position:absolute; left:0; top:0; color:var(--hot);
+                       font-size:11px; font-weight:700; }
+  ul.miss li.minor::before { content:"–"; color:var(--ink-faint); font-weight:400; }
+  ul.miss li b { color:var(--ink); }
+  .why { margin-top:6px; font-size:12px; line-height:1.4; color:var(--accent-deep);
+         font-weight:600; }
+  .sig { margin-top:4px; font-size:12px; color:var(--ink-soft);
+         display:flex; flex-wrap:wrap; gap:3px 10px; }
+  .sig .est { color:var(--accent-deep); font-weight:600; }
+  .sig .unknown { color:var(--ink-faint); border:1px dashed var(--hair);
+                  border-radius:5px; padding:0 5px; cursor:help; }
+  .stage-sel { font-size:12px; padding:2px 5px; }
+  .muted { color:var(--ink-faint); font-size:12px; }
+  footer { padding:8px 20px; font-size:11.5px; color:var(--ink-faint);
+           background:var(--surface); border-top:1px solid var(--hair); }
+  .popup-name { font-weight:600; margin-bottom:2px; }
+  .popup-meta { font-size:12px; color:var(--ink-soft); }
+  .popup-meta ul.miss { margin:5px 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>LeadShoot <span>- gaps on the map</span></h1>
+  <div id="stats">loading…</div>
+  <div id="live" class="off"><span class="dot"></span><span id="live-text">connecting…</span></div>
+  <div class="controls">
+    <select id="f-search" title="search version"></select>
+    <!-- options are filled from /api/options - the engine's own vocabulary,
+         never hardcoded here, so every computable gap is filterable -->
+    <select id="f-gap"><option value="">all gaps</option></select>
+    <select id="f-stage"><option value="">all stages</option></select>
+    <input id="f-score" type="number" min="0" max="100" value="0"
+           title="min score" style="width:64px">
+    <button class="primary" onclick="refresh(true)">Refresh</button>
+    <button onclick="window.location='/api/export?format=csv'">Export CSV</button>
+  </div>
+</header>
+<main>
+  <div id="map"></div>
+  <div id="panel">
+    <table>
+      <thead><tr>
+        <th>Score</th><th>Business</th><th>What they're missing</th><th>Contact</th><th>Stage</th>
+      </tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+</main>
+<footer>Data © OpenStreetMap contributors (ODbL). Live checks by LeadShoot.
+  Business contacts only - be a good citizen when you reach out.</footer>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+let STAGES = ["new","contacted","interested","won","lost","hidden"]; // replaced by /api/options
+let map, layer;
+
+// render state: one source of truth keyed by business id
+const markers = new Map();   // id -> Leaflet marker
+const rowsById = new Map();  // id -> <tr>
+const leadsById = new Map(); // id -> lead
+let renderKey = "";          // filters fingerprint of what's on screen
+let autoFollow = true;       // pin the newest search until the user picks one
+let autoFit = true;          // fit map to data until the user pans/zooms
+
+function pinColor(lead){
+  const gaps = (lead.gap_flags||"").split(",");
+  if (gaps.includes("no_website")) return "#c0392b";
+  if (gaps.includes("broken_site")) return "#d35400";
+  if (gaps.includes("no_ssl")) return "#d68910";
+  if (lead.gap_flags) return "#7f8c8d";
+  return "#b7c4bf";
+}
+
+function initMap(){
+  map = L.map("map");
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+  }).addTo(map);
+  layer = L.layerGroup().addTo(map);
+  map.setView([20,0], 2);
+  // manual pan/zoom = the user took the wheel; stop auto-fitting
+  const el = map.getContainer();
+  for (const ev of ["mousedown","wheel","touchstart"])
+    el.addEventListener(ev, () => { autoFit = false; }, {passive:true});
+}
+
+function missingList(lead){
+  const gaps = (lead.gap_flags||"").split(",").filter(Boolean);
+  const unv = lead.confidence === "unverified";
+  const items = [];
+  for (const g of gaps){
+    if (g === "broken_site"){
+      if (lead.http_code) items.push(`<li><b>Website is down</b> - returns HTTP ${lead.http_code}</li>`);
+      else if (unv) items.push(`<li><b>Site not responding</b> - host resolves, nothing answers</li>`);
+      else items.push(`<li><b>Website is dead</b> - domain no longer resolves</li>`);
+    }
+    else if (g === "no_website")
+      items.push(`<li><b>No website</b> - nothing listed anywhere${unv ? " (worth confirming)" : ""}</li>`);
+    else if (g === "no_ssl")
+      items.push(`<li><b>No HTTPS</b> - browsers warn “Not secure”</li>`);
+    else if (g === "not_mobile")
+      items.push(`<li class="minor"><b>Not mobile-friendly</b> - no responsive viewport</li>`);
+    else if (g === "no_booking")
+      items.push(`<li class="minor"><b>No online booking</b> - phone-only customers</li>`);
+    else if (g === "weak_reviews")
+      items.push(`<li><b>Weak reviews</b> - ★${(lead.reviews_rating??0).toFixed(1)} across ${lead.reviews_count||0}</li>`);
+    else if (g === "few_reviews")
+      items.push(`<li class="minor"><b>Only ${lead.reviews_count||0} reviews</b> - invisible in map results</li>`);
+    else if (g === "inactive_social")
+      items.push(`<li><b>Social gone quiet</b> - no post in ${lead.social_last_post_days||"90+"} days</li>`);
+    else if (g === "weak_social")
+      items.push(`<li class="minor"><b>Tiny social audience</b> - ${lead.social_followers||0} followers</li>`);
+    else if (g === "outdated_tech")
+      items.push(`<li><b>Outdated platform</b> - ${lead.builder||"old CMS"} needs upgrading</li>`);
+    else if (g === "diy_builder")
+      items.push(`<li class="minor"><b>DIY template site</b> - built on ${lead.builder||"a site builder"}</li>`);
+    else if (g === "slow_site")
+      items.push(`<li class="minor"><b>Slow to load</b> - over 4s to first page</li>`);
+    else items.push(`<li>${g.replaceAll("_"," ")}</li>`);
+  }
+  if (items.length) return `<ul class="miss">${items.join("")}</ul>`;
+  if (lead.score > 0)
+    return '<span class="muted">fit lead - healthy buyer, nothing to fix (ranked by signals)</span>';
+  return '<span class="muted">nothing - healthy web presence</span>';
+}
+
+function yearsOld(lead){
+  return lead.founded_year ? new Date().getFullYear() - lead.founded_year : null;
+}
+
+function whyLead(lead){
+  const gaps = (lead.gap_flags||"").split(",").filter(Boolean);
+  const hasSiteGap = gaps.includes("broken_site") || gaps.includes("no_website");
+  const age = yearsOld(lead);
+  if (!gaps.length) return "";
+  if ((lead.reviews_rating??0) >= 4.3 && hasSiteGap)
+    return `→ Loved but invisible: ★${lead.reviews_rating.toFixed(1)} from ${lead.reviews_count} customers, and no working site to catch them`;
+  if (age >= 3 && lead.confidence === "verified")
+    return `→ ${age} years in business - proven, and the problem is verified`;
+  if (age >= 3)
+    return `→ ${age} years in business - established, worth confirming the gap`;
+  if (lead.confidence === "verified" && lead.phone)
+    return "→ Verified problem + phone on file: call-ready";
+  if (lead.confidence === "verified")
+    return "→ Verified by a live check - safe to say it in your pitch";
+  return "";
+}
+
+function signalLine(lead){
+  const bits = [];
+  const gaps = lead.gap_flags||"";
+  if (lead.founded_year)
+    bits.push(`<span class="est">est. ${lead.founded_year}</span>`);
+  else if (lead.domain_registered_year)
+    bits.push(`<span class="est" title="domain registration year - age lower bound">est. ~${lead.domain_registered_year}</span>`);
+  else if (gaps || lead.score > 0)
+    bits.push(`<span class="unknown" title="research founding year to rank risk">age?</span>`);
+  if (lead.reviews_rating != null && !gaps.includes("weak_reviews"))
+    bits.push(`★ ${lead.reviews_rating.toFixed(1)} (${lead.reviews_count||0} reviews)`);
+  else if (lead.reviews_count == null && gaps)
+    bits.push(`<span class="unknown" title="research reviews to qualify">reviews?</span>`);
+  if (lead.social_followers != null && !gaps.includes("weak_social"))
+    bits.push(`👥 ${lead.social_followers.toLocaleString()}`);
+  if (lead.builder && !gaps.includes("diy_builder") && !gaps.includes("outdated_tech"))
+    bits.push(`⚙ ${lead.builder}`);
+  if (lead.note) bits.push(`📝 ${lead.note}`);
+  return bits.length ? `<div class="sig">${bits.join(" ")}</div>` : "";
+}
+
+function confBadge(lead){
+  if (!lead.gap_flags) return "";
+  return lead.confidence === "unverified"
+    ? '<div class="conf likely">unconfirmed</div>'
+    : '<div class="conf verified">verified</div>';
+}
+
+function stageSelect(lead){
+  const opts = STAGES.map(s =>
+    `<option ${s===lead.stage?"selected":""}>${s}</option>`).join("");
+  return `<select class="stage-sel" onclick="event.stopPropagation()"
+          onchange="setStage('${lead.id}', this.value)">${opts}</select>`;
+}
+
+async function setStage(id, stage){
+  await fetch(`/api/leads/${id}`, {
+    method:"PATCH",
+    headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({stage})
+  });
+  loadStats();
+}
+
+// ---- incremental rendering ----
+
+function popupHtml(lead){
+  return `<div class="popup-name">${lead.name}</div>
+    <div class="popup-meta">score ${lead.score} · ${lead.category}
+    ${missingList(lead)}${lead.phone||"no phone"}<br>
+    ${lead.address||""}</div>`;
+}
+
+function rowHtml(lead){
+  return `
+    <td class="score-cell"><div class="score-num">${lead.score}</div>${confBadge(lead)}</td>
+    <td><div class="bname">${lead.name}</div>
+        <span class="muted">${lead.category} · ${lead.id}</span>
+        ${signalLine(lead)}</td>
+    <td>${missingList(lead)}<div class="why">${whyLead(lead)}</div></td>
+    <td class="muted">${lead.phone||"-"}<br>${lead.osm_website
+        ? `<a href="${lead.osm_website}" target="_blank" rel="noopener">site</a>` : "no site listed"}</td>
+    <td>${stageSelect(lead)}</td>`;
+}
+
+function leadChanged(prev, lead){
+  return !prev || prev.score !== lead.score || prev.gap_flags !== lead.gap_flags
+      || prev.stage !== lead.stage || prev.checked_at !== lead.checked_at
+      || prev.note !== lead.note;
+}
+
+function upsertLead(lead, {flash=false}={}){
+  const prev = leadsById.get(lead.id);
+  leadsById.set(lead.id, lead);
+
+  if (lead.lat && lead.lon){
+    let m = markers.get(lead.id);
+    if (m){
+      m.setStyle({color:pinColor(lead), fillColor:pinColor(lead)});
+      m.setPopupContent(popupHtml(lead));
+    } else {
+      m = L.circleMarker([lead.lat, lead.lon], {
+        radius:7, color:pinColor(lead), fillColor:pinColor(lead),
+        fillOpacity:.85, weight:1
+      }).addTo(layer);
+      m.bindPopup(popupHtml(lead));
+      markers.set(lead.id, m);
+    }
+  }
+
+  const tbody = document.getElementById("rows");
+  let tr = rowsById.get(lead.id);
+  const isNew = !tr;
+  if (isNew){
+    tr = document.createElement("tr");
+    rowsById.set(lead.id, tr);
+    tr.onclick = () => {
+      const l = leadsById.get(lead.id), mk = markers.get(lead.id);
+      if (mk){ map.setView([l.lat, l.lon], 16); mk.openPopup(); }
+    };
+    tbody.appendChild(tr);
+  }
+  if (isNew || leadChanged(prev, lead)) tr.innerHTML = rowHtml(lead);
+  if (flash && (isNew || leadChanged(prev, lead))){
+    tr.classList.remove("fresh"); void tr.offsetWidth; tr.classList.add("fresh");
+  }
+}
+
+function removeLead(id){
+  const m = markers.get(id); if (m){ layer.removeLayer(m); markers.delete(id); }
+  const tr = rowsById.get(id); if (tr){ tr.remove(); rowsById.delete(id); }
+  leadsById.delete(id);
+}
+
+function resetView(){
+  layer.clearLayers();
+  document.getElementById("rows").innerHTML = "";
+  markers.clear(); rowsById.clear(); leadsById.clear();
+}
+
+function fitToMarkers(){
+  const b = [...leadsById.values()].filter(l=>l.lat&&l.lon).map(l=>[l.lat,l.lon]);
+  if (b.length) map.fitBounds(b, {padding:[30,30], animate:false});
+}
+
+async function loadStats(){
+  const s = await (await fetch("/api/status")).json();
+  const pipeline = Object.entries(s.pipeline||{})
+    .map(([k,v])=>`${v} ${k}`).join(" · ") || "nothing worked yet";
+  document.getElementById("stats").textContent =
+    `${s.businesses} businesses · ${s.checked} checked · ${s.with_gaps} with gaps · ${pipeline}`;
+}
+
+async function loadOptions(){
+  // The engine's full vocabulary - used only for the per-row stage picker
+  // (a lead can be moved to ANY stage). The visible FILTERS come from
+  // /api/facets instead, so they show only what the data contains.
+  try {
+    const o = await (await fetch("/api/options")).json();
+    if (o.stages && o.stages.length) STAGES = o.stages;
+  } catch {}
+}
+
+// Dynamic filters: only the gaps/stages that actually occur in the selected
+// search, with counts - derived from the data, never hardcoded. Refetched on
+// search change and on every live update, so filters grow as leads land.
+async function loadFacets(){
+  const searchId = document.getElementById("f-search").value;
+  const qs = searchId ? `?search_id=${searchId}` : "";
+  let f = {gaps:{}, stages:{}};
+  try { f = await (await fetch(`/api/facets${qs}`)).json(); } catch {}
+
+  const g = document.getElementById("f-gap"), gPrev = g.value;
+  const gaps = Object.keys(f.gaps||{}).sort();
+  g.innerHTML = '<option value="">all gaps</option>' + gaps.map(x =>
+    `<option value="${x}">${x.replaceAll("_"," ")} (${f.gaps[x]})</option>`).join("");
+  g.value = gaps.includes(gPrev) ? gPrev : "";        // keep pick if still valid
+
+  const t = document.getElementById("f-stage"), tPrev = t.value;
+  const present = STAGES.filter(s => (f.stages||{})[s]);  // engine order
+  t.innerHTML = '<option value="">all stages</option>' + present.map(s =>
+    `<option value="${s}">${s} (${f.stages[s]})</option>`).join("");
+  t.value = present.includes(tPrev) ? tPrev : "";
+}
+
+async function loadSearches(){
+  const sel = document.getElementById("f-search");
+  const runs = await (await fetch("/api/searches")).json();
+  const current = sel.value;
+  sel.innerHTML = '<option value="">all searches</option>' + runs.map(r =>
+    `<option value="${r.id}">#${r.id} · ${r.area||"?"} · ${r.found||0} found</option>`
+  ).join("");
+  if (!autoFollow && current && [...sel.options].some(o => o.value === current)) {
+    sel.value = current;             // the user picked a search - keep it
+  } else if (runs.length) {
+    sel.value = String(runs[0].id);  // follow the newest search live
+  }
+}
+
+function filtersKey(){
+  return [document.getElementById("f-search").value,
+          document.getElementById("f-gap").value,
+          document.getElementById("f-stage").value,
+          document.getElementById("f-score").value].join("|");
+}
+
+// One render path. hard=true clears first (filter change / manual refresh);
+// otherwise it diffs in place: new leads append+flash, changed ones update,
+// vanished ones leave. This is what the change-stream calls.
+async function refresh(hard=false){
+  const gap = document.getElementById("f-gap").value;
+  const stage = document.getElementById("f-stage").value;
+  const minScore = document.getElementById("f-score").value || 0;
+  const searchId = document.getElementById("f-search").value;
+  const params = new URLSearchParams({min_score:minScore, limit:500});
+  if (gap) params.set("gap", gap);
+  if (stage) params.set("stage", stage);
+  if (searchId) params.set("search_id", searchId);
+  const data = await (await fetch(`/api/leads?${params}`)).json();
+
+  const key = filtersKey();
+  const keyChanged = key !== renderKey;
+  renderKey = key;
+  if (hard || keyChanged){ resetView(); autoFit = true; }
+
+  const seen = new Set();
+  const hadAny = leadsById.size > 0;
+  for (const lead of data.leads){
+    seen.add(lead.id);
+    upsertLead(lead, {flash: !hard && !keyChanged && hadAny});
+  }
+  for (const id of [...leadsById.keys()])
+    if (!seen.has(id)) removeLead(id);
+
+  if (autoFit) fitToMarkers();
+  loadStats();
+}
+
+// ---- the reactive session feed ----
+// The engine never pushes to the UI; the UI watches the DB via /api/stream.
+// Run `leadshoot find` in any terminal / let any agent write over MCP - this
+// page repaints as each commit lands.
+let refreshTimer = null;
+function connectStream(){
+  const live = document.getElementById("live");
+  const text = document.getElementById("live-text");
+  const es = new EventSource("/api/stream");
+  es.onopen = () => { live.classList.remove("off"); text.textContent = "watching for changes"; };
+  es.addEventListener("change", () => {
+    text.textContent = "updating…";
+    clearTimeout(refreshTimer);           // coalesce bursts of commits
+    refreshTimer = setTimeout(async () => {
+      await loadSearches();
+      await loadFacets();          // new gaps appear in the filter as they land
+      await refresh(false);
+      text.textContent = "watching for changes";
+    }, 250);
+  });
+  es.onerror = () => {                    // EventSource auto-reconnects
+    live.classList.add("off");
+    text.textContent = "reconnecting…";
+  };
+}
+
+document.getElementById("f-search").onchange = async () => {
+  const sel = document.getElementById("f-search");
+  autoFollow = sel.value === "" ||
+    sel.value === (sel.options[1] ? sel.options[1].value : "");
+  await loadFacets();            // this search's gaps/stages only
+  refresh(true);
+};
+document.getElementById("f-gap").onchange = () => refresh(true);
+document.getElementById("f-stage").onchange = () => refresh(true);
+document.getElementById("f-score").onchange = () => refresh(true);
+
+initMap();
+loadOptions().then(loadSearches).then(loadFacets).then(() => refresh(true));
+connectStream();
+</script>
+</body>
+</html>

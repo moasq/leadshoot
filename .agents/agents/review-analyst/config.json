@@ -1,0 +1,8 @@
+{
+  "id": "review-analyst",
+  "model": "sonnet",
+  "tools": {
+    "allowed": ["Bash", "Read", "WebSearch", "WebFetch"],
+    "notes": "Web tools for public review-aggregate research; Bash for leadshoot show/review add/leads with --json. Persists aggregates only."
+  }
+}

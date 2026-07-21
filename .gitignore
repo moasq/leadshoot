@@ -1,0 +1,28 @@
+# python
+uv.lock
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+
+# leadshoot runtime state (the user's own data - never committed)
+leadshoot.db
+leadshoot.db-wal
+leadshoot.db-shm
+*.csv
+
+# local claude-code dev-server config (machine-specific)
+.claude/launch.json
+
+# os / editors
+.DS_Store
+.idea/
+.vscode/
+.pytest_cache/
+
+# legacy runtime db (pre-rename) - never commit user data
+leadgap.db
+leadgap.db-wal
+leadgap.db-shm
