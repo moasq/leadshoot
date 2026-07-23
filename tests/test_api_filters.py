@@ -73,6 +73,38 @@ class TestLeadsFilters:
         assert client.get("/api/leads?search_id=999").json()["count"] == 0
 
 
+class TestExport:
+    """The Export button must download a file, not render text over the map."""
+
+    def test_csv_is_an_attachment(self, client):
+        r = client.get("/api/export?format=csv")
+        assert r.status_code == 200
+        assert r.headers["content-type"].startswith("text/csv")
+        assert 'attachment; filename="leadshoot-leads.csv"' \
+            in r.headers["content-disposition"]
+        assert r.text.splitlines()[0].startswith("id,name,category")
+
+    def test_json_is_an_attachment(self, client):
+        r = client.get("/api/export?format=json")
+        assert r.headers["content-type"].startswith("application/json")
+        assert 'filename="leadshoot-leads.json"' \
+            in r.headers["content-disposition"]
+        assert r.json()["count"] == len(GAP_WEIGHTS)
+
+    def test_export_honors_filters(self, client):
+        # one business per gap seeded; a gap filter narrows the export too
+        r = client.get("/api/export?format=csv&gap=broken_site")
+        rows = [ln for ln in r.text.splitlines() if ln][1:]  # drop header
+        assert len(rows) == 1
+        assert "broken_site" in rows[0]
+
+    def test_export_stage_filter(self, client):
+        r = client.get("/api/export?format=csv&stage=contacted")
+        rows = [ln for ln in r.text.splitlines() if ln][1:]
+        assert len(rows) == 1
+        assert rows[0].startswith("n0,")
+
+
 class TestFacets:
     """Dynamic filters: /api/facets offers only what the data contains."""
 

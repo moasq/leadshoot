@@ -95,7 +95,7 @@
     <input id="f-score" type="number" min="0" max="100" value="0"
            title="min score" style="width:64px">
     <button class="primary" onclick="refresh(true)">Refresh</button>
-    <button onclick="window.location='/api/export?format=csv'">Export CSV</button>
+    <button onclick="exportCsv()">Export CSV</button>
   </div>
 </header>
 <main>
@@ -243,6 +243,27 @@ function stageSelect(lead){
     `<option ${s===lead.stage?"selected":""}>${s}</option>`).join("");
   return `<select class="stage-sel" onclick="event.stopPropagation()"
           onchange="setStage('${lead.id}', this.value)">${opts}</select>`;
+}
+
+// Download the CSV as a file WITHOUT navigating away - the old
+// window.location approach replaced the live map with raw text and never
+// triggered a save. Exports exactly what the filters currently show.
+function exportCsv(){
+  const params = new URLSearchParams({format:"csv"});
+  const gap = document.getElementById("f-gap").value;
+  const stage = document.getElementById("f-stage").value;
+  const minScore = document.getElementById("f-score").value || 0;
+  const searchId = document.getElementById("f-search").value;
+  if (gap) params.set("gap", gap);
+  if (stage) params.set("stage", stage);
+  if (minScore) params.set("min_score", minScore);
+  if (searchId) params.set("search_id", searchId);
+  const a = document.createElement("a");
+  a.href = `/api/export?${params}`;
+  a.download = "leadshoot-leads.csv";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
 }
 
 async function setStage(id, stage){

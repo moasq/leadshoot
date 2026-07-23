@@ -185,8 +185,29 @@ class TestCliWiring:
                                   "--db", str(tmp_path / "w.db")])
         assert out.exit_code == 0
 
-    def test_serve_has_no_open_flag(self):
-        assert "--no-open" in runner.invoke(app, ["serve", "--help"]).stdout
+    def test_serve_accepts_no_open_flag(self, monkeypatch, tmp_path):
+        # Functional, not a --help string match: Rich wraps help text at the
+        # terminal width, so `--no-open` splits across lines under CI's 80
+        # cols. Instead prove the flag parses and suppresses the browser.
+        import uvicorn
+
+        opened = []
+        monkeypatch.setattr(uvicorn, "run", lambda *a, **k: None)
+        monkeypatch.setattr("leadshoot.api.create_app", lambda db: object())
+        monkeypatch.setattr("webbrowser.open", opened.append)
+        out = runner.invoke(app, ["serve", "--no-open",
+                                  "--db", str(tmp_path / "w.db")])
+        assert out.exit_code == 0
+        assert opened == []            # --no-open really suppressed it
+
+    def test_serve_help_lists_the_flag(self):
+        # ANSI/'\n'-stripped so wrapping can't hide the token
+        import re
+
+        help_txt = runner.invoke(
+            app, ["serve", "--help"], env={"COLUMNS": "200"}).stdout
+        flat = re.sub(r"\x1b\[[0-9;]*m", "", help_txt).replace("\n", " ")
+        assert "no-open" in flat
 
     def test_python_dash_m_entry(self):
         # the spawned server runs `sys.executable -m leadshoot serve ...`

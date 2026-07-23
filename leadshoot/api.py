@@ -6,8 +6,8 @@ import asyncio
 import json
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import PlainTextResponse, StreamingResponse
+from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -253,11 +253,24 @@ def create_app(db: str | None = None) -> FastAPI:
         s.save_icp(icp.name, icp.to_dict())
         return icp.to_dict()
 
-    @app.get("/api/export", response_class=PlainTextResponse)
+    @app.get("/api/export")
     def api_export(format: str = "csv", stage: str | None = None,
-                   min_score: int = 0) -> str:
-        rows = store().leads(stage=stage, min_score=min_score, limit=100_000)
-        return to_csv(rows) if format == "csv" else to_json(rows)
+                   gap: str | None = None, min_score: int = 0,
+                   search_id: int | None = None) -> Response:
+        """Download the current pipeline as a file. Returns an attachment
+        (Content-Disposition) with the right media type, so a browser saves
+        it instead of rendering raw text over the map. Honors the same
+        filters as the leads view."""
+        rows = store().leads(stage=stage, gap=gap, min_score=min_score,
+                             search_id=search_id, limit=100_000)
+        if format == "json":
+            body, media, ext = to_json(rows), "application/json", "json"
+        else:
+            body, media, ext = to_csv(rows), "text/csv", "csv"
+        return Response(
+            content=body, media_type=f"{media}; charset=utf-8",
+            headers={"Content-Disposition":
+                     f'attachment; filename="leadshoot-leads.{ext}"'})
 
     app.mount("/", StaticFiles(directory=str(WEB_DIR), html=True), name="web")
     return app
