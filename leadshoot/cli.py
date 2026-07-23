@@ -249,16 +249,35 @@ def find(
     icp: str = typer.Option(None, "--icp", help="ICP name (optional if only one)."),
     limit: int = typer.Option(25, help="Max leads to return."),
     max_age_days: int = typer.Option(30, help="Recheck sites older than this."),
+    open_ui: bool = typer.Option(True, "--open/--no-open",
+                                 help="Open the live map in the browser so "
+                                      "the search is watched as it lands "
+                                      "(headless/CI: --no-open or "
+                                      "LEADSHOOT_NO_OPEN=1)."),
     as_json: bool = _JSON_OPT,
     db: str = _DB_OPT,
 ) -> None:
-    """Find fresh leads: pull roster, live-check sites, score gaps, rank."""
+    """Find fresh leads: pull roster, live-check sites, score gaps, rank.
+
+    Opens the live map first (see --open) - pins land in the browser as
+    each site check commits, while this command keeps printing to the
+    terminal and, with --json, emits the final ranked JSON on stdout.
+    """
     store = _store(db)
     profile = _require_icp(store, icp)
+    map_url = None
+    if open_ui:
+        from .ui import ensure_ui
+
+        note = (lambda m: typer.secho(f"  · {m}", dim=True, err=True))
+        map_url = ensure_ui(db, open_browser=True, echo=note)
+        if map_url:
+            typer.secho(f"  live map: {map_url}  (fills as checks land)",
+                        fg="cyan", err=as_json)
     if as_json:
         leads = run_find(store, profile, limit=limit, max_age_days=max_age_days)
         _emit({"attribution": OSM_ATTRIBUTION, "icp": profile.name,
-               "search_id": store.latest_run_id(),
+               "search_id": store.latest_run_id(), "live_map": map_url,
                "count": len(leads), "leads": leads})
         return
     typer.secho(f"Finding leads for '{profile.name}' in {profile.area} …",
@@ -597,9 +616,17 @@ def export(
 def serve(
     port: int = typer.Option(8321),
     host: str = typer.Option("127.0.0.1"),
+    open_ui: bool = typer.Option(True, "--open/--no-open",
+                                 help="Open the map in the browser once "
+                                      "the server is up."),
     db: str = _DB_OPT,
 ) -> None:
-    """Serve the REST API + local map UI."""
+    """Serve the REST API + local map UI (foreground).
+
+    Rarely needed by hand: `leadshoot find` starts a background copy and
+    opens the map by itself. Use serve for docker, a fixed port, or a
+    long-lived dashboard.
+    """
     try:
         import uvicorn
 
@@ -608,8 +635,42 @@ def serve(
         typer.secho("Server extras missing: pip install 'leadshoot[server]'",
                     fg="red")
         raise typer.Exit(1)
-    typer.echo(f"LeadShoot UI on http://{host}:{port}")
+    import os as _os
+
+    url = f"http://{'127.0.0.1' if host == '0.0.0.0' else host}:{port}"
+    typer.echo(f"LeadShoot UI on {url}")
+    if open_ui and not _os.environ.get("LEADSHOOT_NO_OPEN"):
+        import threading
+        import webbrowser
+
+        t = threading.Timer(0.8, webbrowser.open, [url])
+        t.daemon = True
+        t.start()
     uvicorn.run(create_app(db), host=host, port=port, log_level="warning")
+
+
+@app.command()
+def ui(
+    stop: bool = typer.Option(False, "--stop", help="Stop the background "
+                                                    "live map instead."),
+    db: str = _DB_OPT,
+) -> None:
+    """Open the live map for this database (starting it if needed).
+
+    The same map `find` opens automatically: a background server per
+    database, reused across commands, repainting on every commit.
+    """
+    from .ui import ensure_ui, stop_ui
+
+    note = (lambda m: typer.secho(f"  · {m}", dim=True))
+    if stop:
+        raise typer.Exit(0 if stop_ui(db, echo=note) else 1)
+    url = ensure_ui(db, open_browser=True, echo=note)
+    if url is None:
+        typer.secho("Could not open the live map (LEADSHOOT_NO_OPEN set, "
+                    "server extras missing, or no free port).", fg="yellow")
+        raise typer.Exit(1)
+    typer.secho(f"Live map: {url}", fg="cyan")
 
 
 @app.command()

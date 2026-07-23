@@ -39,6 +39,8 @@
   @media (max-width: 900px){ main { grid-template-columns:1fr; grid-template-rows:45vh 1fr; } }
   #map { height:100%; }
   #panel { overflow-y:auto; background:var(--surface); border-left:1px solid var(--hair); }
+  #empty { padding:38px 26px; color:var(--muted); font-size:14px; line-height:1.7; }
+  #empty code { background:var(--hair); padding:2px 7px; border-radius:5px; }
   table { width:100%; border-collapse:collapse; font-size:13.5px; }
   thead th { position:sticky; top:0; background:var(--paper); text-align:left;
              font-size:11px; text-transform:uppercase; letter-spacing:.06em;
@@ -105,6 +107,7 @@
       </tr></thead>
       <tbody id="rows"></tbody>
     </table>
+    <div id="empty" style="display:none"></div>
   </div>
 </main>
 <footer>Data © OpenStreetMap contributors (ODbL). Live checks by LeadShoot.
@@ -422,7 +425,25 @@ async function refresh(hard=false){
     if (!seen.has(id)) removeLead(id);
 
   if (autoFit) fitToMarkers();
+  updateEmptyHint();
   loadStats();
+}
+
+// First-run guidance: the page is opened by `leadshoot find` BEFORE results
+// exist, so an empty table must say "watch this space", not look broken.
+function updateEmptyHint(){
+  const empty = document.getElementById("empty");
+  if (leadsById.size > 0){ empty.style.display = "none"; return; }
+  const hasSearches = document.getElementById("f-search").options.length > 1;
+  const filtered = document.getElementById("f-gap").value ||
+                   document.getElementById("f-stage").value ||
+                   (document.getElementById("f-score").value|0) > 0;
+  empty.innerHTML = hasSearches && filtered
+    ? "Nothing matches these filters - clear them to see every lead."
+    : `This map is <b>live</b> - it repaints as your search commits results.<br>
+       Waiting for leads. If nothing is running yet, start one in your
+       terminal (or ask your agent):<br><code>leadshoot find</code>`;
+  empty.style.display = "block";
 }
 
 // ---- the reactive session feed ----

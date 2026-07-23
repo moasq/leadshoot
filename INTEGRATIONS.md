@@ -42,10 +42,16 @@ leadshoot options                       # valid categories/services/stages/gaps
 leadshoot niche "I build websites"      # map the niche deterministically
 leadshoot icp new --name x --area "Portland, OR" \
     --categories dentist --service website_design --json
-leadshoot find --icp x --limit 25 --json
+leadshoot find --icp x --limit 25 --json    # also auto-opens the live map
 leadshoot leads --gap broken_site --min-score 50 --json
 leadshoot mark n4544564889 --stage contacted --note "voicemail" --json
 ```
+
+`find` opens a live map in the user's browser by itself (its JSON reports the
+URL as `live_map`) - pins land as each check commits, so the human watches
+while the agent works. On a headless box, pass `--no-open` or set
+`LEADSHOOT_NO_OPEN=1`. `leadshoot ui` reopens the map; `leadshoot ui --stop`
+ends the background server.
 
 That's the whole contract. Grok, Hermes, OpenClaw, a bash loop - same three
 steps:
@@ -157,6 +163,9 @@ leadshoot serve --port 8321
 
 API under `/api/*`, live map UI at `/`, machine-readable schema at
 `/openapi.json` - feed that to any OpenAPI-driven tool-calling agent.
+(For the map alone you rarely run this by hand - `find` starts a background
+copy and opens it; `serve` is for docker, fixed ports, or long-lived
+dashboards. `--no-open` skips its own browser launch.)
 
 ---
 

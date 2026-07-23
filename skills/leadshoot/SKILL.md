@@ -35,6 +35,11 @@ leadshoot export --format csv --out leads.csv
 
 - `find` live-checks every site: **1–3 minutes on big areas - tell the user
   before running.** It auto-excludes leads already worked (stage ≠ new).
+- `find` also **auto-opens the live map** in the user's browser (the
+  `live_map` field in its JSON carries the URL) - expected behavior, let it
+  happen; the user watches pins land while you keep working. On a headless
+  box pass `--no-open` or set `LEADSHOOT_NO_OPEN=1`. `leadshoot ui`
+  reopens the map; `leadshoot ui --stop` ends the background server.
 - **Every find is a numbered search** (`search_id` in the response). Results
   belong to exactly that search - no accumulation. A business rediscovered
   by a newer search is claimed by it (never duplicated); older searches lose

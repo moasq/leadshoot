@@ -6,7 +6,7 @@
   <p>
     <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-1c7d6d?style=flat-square" alt="MIT" /></a>
     <img src="https://img.shields.io/badge/Python-3.11%2B-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python 3.11+" />
-    <img src="https://img.shields.io/badge/tests-124%20passing-2e7d5b?style=flat-square" alt="124 tests" />
+    <img src="https://img.shields.io/badge/tests-143%20passing-2e7d5b?style=flat-square" alt="143 tests" />
     <img src="https://img.shields.io/badge/MCP-ready-6b3fa0?style=flat-square" alt="MCP ready" />
     <img src="https://img.shields.io/badge/data-OSM%20%2B%20Overture-7EBC6F?style=flat-square&logo=openstreetmap&logoColor=white" alt="open data" />
   </p>
@@ -54,9 +54,14 @@ Then point it at a city and go:
 ```bash
 leadshoot icp new --name web --area "Austin, TX" \
     --categories dentist --service website_design --json
-leadshoot find --icp web --json      # discover, live-check, rank
-leadshoot serve                      # live map of your leads at localhost:8321
+leadshoot find --icp web
 ```
+
+That second command is the whole product: **your browser opens a live map by
+itself** and pins land one by one as each website check finishes - red means a
+verified reason to call. No serve step, no refresh button. Reopen the map
+anytime with `leadshoot ui` (`leadshoot ui --stop` ends it); on a headless box
+use `--no-open` or `LEADSHOOT_NO_OPEN=1`.
 
 The first run builds an isolated environment automatically (a few seconds), then it is cached and instant. Want a permanent binary instead? `uv tool install "leadshoot[all] @ git+https://github.com/moasq/leadshoot"`. On PyPI soon, then it is simply `uvx leadshoot`.
 
@@ -73,7 +78,7 @@ Open data, one SQLite file, runs on a laptop.
 - ✅ **Every gap verified.** Flagged sites were fetched and seen failing. Anything inferred is labelled `unverified` and scored lower - verified means verified.
 - ✅ **Ranked by opportunity.** Established businesses rank up, brand-new ones down, unknown-age discounted. `enrich` dates them automatically.
 - ✅ **Your pipeline stays yours.** Stages and notes live in tables no engine run ever touches.
-- ✅ **A live map of the session.** `leadshoot serve` opens a map that repaints itself as data changes - run `find` in a terminal or let an agent add signals over MCP, and pins land as each check commits. No refresh button.
+- ✅ **A live map, hands-free.** `find` opens the map in your browser by itself and repaints it as data changes - pins land as each check commits, whether the writer is your terminal or an agent over MCP. No refresh button, no serve step.
 - ✅ **One SQLite file.** No accounts, no cloud, portable - point it at your city.
 
 ## 🤖 Works with your agent
@@ -140,8 +145,8 @@ Every lead explains itself: *what's missing* (verified HTTP error, dead domain,
 dormant Instagram), *why it's real* ("34 years in business - proven, and the problem
 is verified"), and *what's still unknown* (`age?` `reviews?`).
 
-The full command set (`enrich`, `mark`, `recheck`, `export`, `mcp`, `serve`) is in
-[INTEGRATIONS.md](INTEGRATIONS.md).
+The full command set (`enrich`, `mark`, `recheck`, `export`, `ui`, `mcp`,
+`serve`) is in [INTEGRATIONS.md](INTEGRATIONS.md).
 
 ## How it works
 

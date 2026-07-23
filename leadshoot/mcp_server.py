@@ -130,16 +130,27 @@ def build_server(db: str | None = None, host: str = "127.0.0.1",
         return _store().list_icps()
 
     @mcp.tool()
-    def find_leads(icp_name: str | None = None, limit: int = 25) -> dict:
+    def find_leads(icp_name: str | None = None, limit: int = 25,
+                   open_ui: bool = True) -> dict:
         """Find fresh leads for an ICP: pulls the OSM roster, live-checks
         every website, scores the gaps, and returns ranked leads. Excludes
         anything the user already contacted/won/hidden. May take a minute
-        for large areas."""
+        for large areas.
+
+        By default this also opens the live map in the user's browser so
+        they watch pins land while the search runs (open_ui=False or
+        LEADSHOOT_NO_OPEN=1 to skip - e.g. on a headless host)."""
         store = _store()
         icp = _icp(store, icp_name)
+        map_url = None
+        if open_ui:
+            from .ui import ensure_ui
+
+            map_url = ensure_ui(db)   # best-effort, never raises
         leads = run_find(store, icp, limit=limit)
         return {"attribution": OSM_ATTRIBUTION, "count": len(leads),
-                "search_id": store.latest_run_id(), "leads": leads}
+                "search_id": store.latest_run_id(), "live_map": map_url,
+                "leads": leads}
 
     @mcp.tool()
     def list_leads(

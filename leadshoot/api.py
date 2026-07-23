@@ -89,7 +89,11 @@ def create_app(db: str | None = None) -> FastAPI:
 
     @app.get("/api/status")
     def api_status() -> dict:
-        return store().status()
+        # db reported absolute (resolved in THIS process, whose cwd fixed the
+        # relative path) so auto-open can tell "same db" from another one.
+        s = store().status()
+        s["db"] = str(Path(s["db"]).expanduser().resolve())
+        return s
 
     @app.get("/api/options")
     def api_options() -> dict:

@@ -49,7 +49,12 @@ or `$LEADSHOOT_DB` / `--db`). Rediscover it every session.
    (reviews, activity, maturity), nothing is flagged as a problem.
 2. `leadshoot find --icp NAME --limit 25 --json` - pulls the OSM roster,
    live-checks every website, merges review gaps, scores, ranks. 1–3 min on
-   big areas; warn the user. **Every find is a numbered search** (its
+   big areas; warn the user. **`find` auto-opens the live map** in the
+   user's browser (background server per db, reused; `live_map` in the JSON
+   carries the URL) - the user watches pins land while you work. Headless/
+   CI: `--no-open` or `LEADSHOOT_NO_OPEN=1`. Reopen anytime with
+   `leadshoot ui`; `leadshoot ui --stop` ends the background server.
+   **Every find is a numbered search** (its
    version, returned as `search_id`): results are scoped to exactly what
    that search found - they never accumulate. A business rediscovered by a
    newer search is *claimed* by it (never duplicated); older searches lose
