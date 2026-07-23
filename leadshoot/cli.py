@@ -12,6 +12,7 @@ from . import OSM_ATTRIBUTION, __version__
 from .export import to_csv, to_json
 from .icp import CATEGORIES, GAP_WEIGHTS, ICP, SERVICES, infer_gaps
 from .pipeline import apply_signal_update, enrich_domain_age
+from .pipeline import attribution_for, funnel_payload, present_leads, research_queue
 from .pipeline import find_leads as run_find
 from .pipeline import import_gmaps as run_import_gmaps
 from .pipeline import recheck as run_recheck
@@ -24,9 +25,9 @@ _JSON_OPT = typer.Option(False, "--json", help="Machine-readable JSON output "
 def _emit(payload) -> None:
     typer.echo(json.dumps(payload, indent=2, default=str))
 
-app = typer.Typer(help="Find the local businesses missing what you sell - "
-                       "gaps verified live on open data, ranked by "
-                       "opportunity.",
+app = typer.Typer(help="Discover local businesses, verify the signals that "
+                       "matter for what you sell, and return qualified leads "
+                       "with high/medium/not-sure priority.",
                   no_args_is_help=True)
 icp_app = typer.Typer(help="Manage ideal customer profiles (ICPs).",
                       no_args_is_help=True)
@@ -36,7 +37,7 @@ review_app = typer.Typer(help="Record review signals researched by you or "
                          no_args_is_help=True)
 app.add_typer(review_app, name="review")
 signal_app = typer.Typer(help="Record any researched signal (reviews, social "
-                              "activity, founding year, …) and rescore.",
+                              "activity, founding year, …) and reclassify.",
                          no_args_is_help=True)
 app.add_typer(signal_app, name="signal")
 
@@ -75,12 +76,15 @@ def _require_icp(store: Store, name: str | None) -> ICP:
 
 def _format_lead(lead: dict, verbose: bool = False) -> str:
     gaps = lead["gap_flags"] or "-"
-    conf = " (unverified)" if lead.get("confidence") == "unverified" else ""
     phone = lead.get("phone") or "no phone"
-    line = (f"  {lead['score']:>3}  {lead['id']:<12} {lead['name'][:34]:<34} "
-            f"{lead['category']:<12} {gaps}{conf}")
+    priority = lead["priority"].replace("_", " ").upper()
+    line = (f"  {priority:<9} {lead['id']:<12} {lead['name'][:34]:<34} "
+            f"{lead['category']:<12} {lead['priority_reason']}")
     if verbose:
-        line += f"\n       {phone} · {lead.get('address') or 'no address'}"
+        line += (
+            f"\n             {phone} · {lead.get('address') or 'no address'}"
+            f"\n             gaps: {gaps} · next: {lead['next_action']}"
+        )
     return line
 
 
@@ -124,6 +128,7 @@ def options(db: str = _DB_OPT) -> None:
         "services": {s: infer_gaps(s) for s in SERVICES},
         "stages": list(STAGES),
         "gaps": sorted(GAP_WEIGHTS),
+        "priorities": ["high", "medium", "not_sure"],
         "providers": {
             "osm": "OpenStreetMap (default - open data)",
             "overture": "Overture Maps ~60M places (open CDLA license; "
@@ -149,16 +154,21 @@ def config(key: str, value: str = typer.Argument(None), db: str = _DB_OPT) -> No
 def icp_new(
     name: str = typer.Option(None, help="Short slug, e.g. portland-web."),
     area: str = typer.Option(None, help='Where you work, e.g. "Portland, OR".'),
-    categories: str = typer.Option(None, help="Comma list, e.g. dentist,cafe."),
+    categories: str = typer.Option(
+        None, help="Comma list. Google Maps accepts any business type; "
+                   "OSM/Overture use `leadshoot options` categories."
+    ),
     service: str = typer.Option(None, help=f"What you sell: {sorted(SERVICES)}."),
     exclude_chains: bool = typer.Option(True, help="Skip brands/franchises."),
-    min_score: int = typer.Option(30, help="Minimum opportunity score."),
+    min_priority: str = typer.Option(
+        "not_sure", help="Lowest priority to keep: high, medium, not_sure."
+    ),
     gaps: str = typer.Option(None, help="Custom comma list of gaps to target "
                                         "(overrides the service default - "
                                         "use when the user confirmed "
                                         "targeting outside their niche)."),
     prefer_established: bool = typer.Option(
-        True, help="Rank established businesses above just-started and "
+        True, help="Prefer established businesses over just-started and "
                    "unknown-age ones."),
     provider: str = typer.Option(
         "osm", help="Data provider: osm (default, open data), overture "
@@ -168,8 +178,9 @@ def icp_new(
     mode: str = typer.Option(
         "gaps", help="Targeting mode: gaps (find businesses with fixable "
                      "problems) or fit (find healthy buyers for a product/"
-                     "supply niche - reviews, activity, and maturity rank "
-                     "UP; nothing is flagged). `leadshoot niche` suggests it."),
+                     "supply niche - reviews, activity, and maturity are "
+                     "positive evidence; nothing is flagged). "
+                     "`leadshoot niche` suggests it."),
     as_json: bool = _JSON_OPT,
     db: str = _DB_OPT,
 ) -> None:
@@ -198,7 +209,8 @@ def icp_new(
     try:
         icp = ICP(name=name, area=area, categories=cats, service=service,
                   gaps=gap_list, exclude_chains=exclude_chains,
-                  min_score=min_score, prefer_established=prefer_established,
+                  min_priority=min_priority,
+                  prefer_established=prefer_established,
                   provider=provider, mode=mode)
     except ValueError as e:
         if as_json:
@@ -257,11 +269,11 @@ def find(
     as_json: bool = _JSON_OPT,
     db: str = _DB_OPT,
 ) -> None:
-    """Find fresh leads: pull roster, live-check sites, score gaps, rank.
+    """Run the funnel: discover, check in parallel, qualify, queue research.
 
     Opens the live map first (see --open) - pins land in the browser as
     each site check commits, while this command keeps printing to the
-    terminal and, with --json, emits the final ranked JSON on stdout.
+    terminal and, with --json, emits qualitative leads plus a research queue.
     """
     store = _store(db)
     profile = _require_icp(store, icp)
@@ -276,25 +288,35 @@ def find(
                         fg="cyan", err=as_json)
     if as_json:
         leads = run_find(store, profile, limit=limit, max_age_days=max_age_days)
-        _emit({"attribution": OSM_ATTRIBUTION, "icp": profile.name,
+        payload = funnel_payload(store, leads, profile)
+        _emit({"attribution": attribution_for(profile), "icp": profile.name,
                "search_id": store.latest_run_id(), "live_map": map_url,
-               "count": len(leads), "leads": leads})
+               **payload})
         return
     typer.secho(f"Finding leads for '{profile.name}' in {profile.area} …",
                 bold=True)
     leads = run_find(store, profile, limit=limit, max_age_days=max_age_days,
                      progress=_echo_progress)
+    payload = funnel_payload(store, leads, profile)
+    public = payload["leads"]
     typer.secho(f"  search #{store.latest_run_id()} - this search's results "
                 f"(older searches: leadshoot searches)", dim=True)
-    if not leads:
-        typer.echo("No leads at or above min_score. Try more categories, a "
-                   "bigger area, or a lower --min-score on the ICP.")
+    if not public:
+        typer.echo("No relevant candidates found. Try more categories or a "
+                   "larger area.")
         return
-    typer.echo(f"\n  SCORE ID           NAME{'':<32}CATEGORY     GAPS")
-    for lead in leads:
+    typer.echo(f"\n  PRIORITY  ID           NAME{'':<30}CATEGORY     WHY")
+    for lead in public:
         typer.echo(_format_lead(lead, verbose=True))
-    typer.echo(f"\n{len(leads)} leads. Next: leadshoot mark <ID> --stage contacted")
-    if profile.provider == "overture":
+    typer.echo(
+        f"\n{payload['ready']} ready · {payload['needs_research']} need quick "
+        "research. Next: leadshoot research-queue --search latest"
+    )
+    if profile.provider == "gmaps":
+        from .gmaps import TOS_NOTE
+
+        typer.secho(TOS_NOTE, dim=True)
+    elif profile.provider == "overture":
         from .overture import ATTRIBUTION as OVERTURE_ATTRIBUTION
 
         typer.secho(OVERTURE_ATTRIBUTION, dim=True)
@@ -306,7 +328,7 @@ def find(
 def import_gmaps_cmd(
     file: str = typer.Argument(help="gosom results file (.json / .csv) "
                                     "you produced yourself."),
-    icp: str = typer.Option(None, "--icp", help="ICP for area + scoring."),
+    icp: str = typer.Option(None, "--icp", help="ICP for area + qualification."),
     category: str = typer.Option(None, help="Fallback LeadShoot category for "
                                             "records whose Google category "
                                             "can't be mapped."),
@@ -318,7 +340,7 @@ def import_gmaps_cmd(
 
     You run gosom yourself (CLI, docker, or its web UI) - scraping Google
     Maps is against Google's ToS; your choice, your responsibility. LeadShoot
-    then adds its value: live website checks, gap scoring, review signals
+    then adds its value: live website checks, qualitative priority, review signals
     (rating/count land automatically, source=google), and your pipeline.
     Harvested emails in the file are refused (rule 01).
     """
@@ -333,26 +355,32 @@ def import_gmaps_cmd(
     if as_json:
         rows = run_import_gmaps(store, profile, file, limit=limit,
                                 fallback_category=category)
+        payload = funnel_payload(store, rows, profile)
         _emit({"attribution": "Imported data: Google Maps via user-run "
                               "gosom scraper", "icp": profile.name,
-               "count": len(rows), "leads": rows})
+               **payload})
         return
     typer.secho(f"Importing gosom results for '{profile.name}' …", bold=True)
     rows = run_import_gmaps(store, profile, file, limit=limit,
                             fallback_category=category,
                             progress=_echo_progress)
-    typer.echo(f"\n  SCORE ID           NAME{'':<32}CATEGORY     GAPS")
-    for lead in rows:
+    payload = funnel_payload(store, rows, profile)
+    typer.echo(f"\n  PRIORITY  ID           NAME{'':<30}CATEGORY     WHY")
+    for lead in payload["leads"]:
         typer.echo(_format_lead(lead, verbose=True))
-    typer.echo(f"\n{len(rows)} leads from import. "
-               f"Next: leadshoot mark <ID> --stage contacted")
+    typer.echo(
+        f"\n{payload['ready']} ready · {payload['needs_research']} need quick "
+        "research. Next: leadshoot research-queue --search latest"
+    )
 
 
 @app.command()
 def leads(
     stage: str = typer.Option(None, help=f"Filter by stage: {STAGES}."),
     gap: str = typer.Option(None, help="Filter by gap flag, e.g. broken_site."),
-    min_score: int = typer.Option(0, help="Minimum score."),
+    priority: str = typer.Option(
+        None, help="Filter by high, medium, or not_sure."
+    ),
     limit: int = typer.Option(50),
     search: str = typer.Option(None, help="Scope to one search version: "
                                           "a number, or 'latest'."),
@@ -364,15 +392,23 @@ def leads(
     search_id = None
     if search is not None:
         search_id = store.latest_run_id() if search == "latest" else int(search)
-    rows = store.leads(stage=stage, gap=gap, min_score=min_score,
-                       limit=limit, search_id=search_id)
+    rows = store.leads(stage=stage, gap=gap, min_score=1,
+                       limit=max(limit * 3, limit), search_id=search_id)
+    rows = present_leads(store, rows)
+    if priority:
+        if priority not in ("high", "medium", "not_sure"):
+            raise typer.BadParameter(
+                "priority must be high, medium, or not_sure"
+            )
+        rows = [row for row in rows if row["priority"] == priority]
+    rows = rows[:limit]
     if as_json:
         _emit({"count": len(rows), "leads": rows})
         return
     if not rows:
         typer.echo("Nothing matches. Run `leadshoot find` first?")
         return
-    typer.echo(f"  SCORE ID           NAME{'':<32}CATEGORY     GAPS")
+    typer.echo(f"  PRIORITY  ID           NAME{'':<30}CATEGORY     WHY")
     for lead in rows:
         stage_txt = f" [{lead['stage']}]" if lead["stage"] != "new" else ""
         typer.echo(_format_lead(lead) + stage_txt)
@@ -412,10 +448,10 @@ def mark(
 @signal_app.command("add")
 def signal_add(
     business_id: str = typer.Argument(help="Lead id, e.g. n4005935323."),
-    key: str = typer.Option(..., help=f"Signal key. Scored keys: "
+    key: str = typer.Option(..., help=f"Signal key. Understood keys: "
                                       f"{', '.join(KNOWN_SIGNAL_KEYS)}. "
                                       f"Other keys are stored (extensible) "
-                                      f"but don't affect the score."),
+                                      f"but don't affect qualification."),
     source: str = typer.Option(..., help="Where observed: google, instagram, "
                                          "facebook, website, registry, …"),
     value: float = typer.Option(None, help="Numeric value (rating, count, "
@@ -423,15 +459,15 @@ def signal_add(
     text: str = typer.Option(None, help="Text value for non-numeric signals."),
     url: str = typer.Option(None, help="Public source URL."),
     note: str = typer.Option("", help="Short context note."),
-    icp: str = typer.Option(None, "--icp", help="ICP used for rescoring."),
+    icp: str = typer.Option(None, "--icp", help="ICP used for qualification."),
     as_json: bool = _JSON_OPT,
     db: str = _DB_OPT,
 ) -> None:
-    """Record one researched signal and rescore the lead.
+    """Record one researched signal and reclassify the lead.
 
     Aggregates and public facts only - never personal data. Unknown stays
     unknown: absence of a signal is never a gap, though unknown founding
-    age ranks below established businesses.
+    age remains visible until evidence establishes it.
     """
     store = _store(db)
     if not store.add_signal(business_id, key, source, value=value, text=text,
@@ -443,11 +479,15 @@ def signal_add(
         raise typer.Exit(1)
     profile = _require_icp(store, icp)
     biz = apply_signal_update(store, profile, business_id)
+    public = present_leads(store, [biz], profile)[0]
     if as_json:
-        _emit({"ok": True, "lead": biz})
+        _emit({"ok": True, "lead": public})
         return
-    typer.secho(f"Recorded {key} from {source}. Score: {biz['score']} "
-                f"(gaps: {biz['gap_flags'] or '-'})", fg="green")
+    typer.secho(
+        f"Recorded {key} from {source}. Priority: "
+        f"{public['priority'].replace('_', ' ')} — "
+        f"{public['priority_reason']}", fg="green"
+    )
 
 
 @signal_app.command("list")
@@ -477,11 +517,11 @@ def review_add(
     count: int = typer.Option(None, min=0, help="Total review count."),
     url: str = typer.Option(None, help="Public profile URL."),
     note: str = typer.Option("", help="Short context note."),
-    icp: str = typer.Option(None, "--icp", help="ICP used for rescoring."),
+    icp: str = typer.Option(None, "--icp", help="ICP used for qualification."),
     as_json: bool = _JSON_OPT,
     db: str = _DB_OPT,
 ) -> None:
-    """Record an aggregate review signal for a lead and rescore it.
+    """Record an aggregate review signal and reclassify the lead.
 
     Record only business-level aggregates (rating, count, URL) - never
     review text dumps or reviewer identities.
@@ -496,11 +536,15 @@ def review_add(
         raise typer.Exit(1)
     profile = _require_icp(store, icp)
     biz = apply_signal_update(store, profile, business_id)
+    public = present_leads(store, [biz], profile)[0]
     if as_json:
-        _emit({"ok": True, "lead": biz})
+        _emit({"ok": True, "lead": public})
         return
-    typer.secho(f"Recorded {source} signal. New score: {biz['score']} "
-                f"(gaps: {biz['gap_flags'] or '-'})", fg="green")
+    typer.secho(
+        f"Recorded {source} signal. Priority: "
+        f"{public['priority'].replace('_', ' ')} — "
+        f"{public['priority_reason']}", fg="green"
+    )
 
 
 @review_app.command("list")
@@ -541,14 +585,58 @@ def searches(limit: int = typer.Option(20), as_json: bool = _JSON_OPT,
 def show(business_id: str, as_json: bool = _JSON_OPT,
          db: str = _DB_OPT) -> None:
     """Full detail for one lead: facts, gaps, reviews, pipeline stage."""
-    biz = _store(db).get_business(business_id)
+    store = _store(db)
+    biz = store.get_business(business_id)
     if biz is None:
         if as_json:
             _emit({"ok": False, "error": f"No business with id {business_id}"})
         else:
             typer.secho(f"No business with id {business_id}", fg="red")
         raise typer.Exit(1)
-    _emit(biz)
+    _emit(present_leads(store, [biz])[0])
+
+
+@app.command("research-queue")
+def research_queue_cmd(
+    search: str = typer.Option(
+        "latest", help="Search version to qualify: a number or 'latest'."
+    ),
+    priority: str = typer.Option(
+        None, help="Optional exact priority: high, medium, not_sure."
+    ),
+    include_context: bool = typer.Option(
+        False, help="Also research useful outreach context, not only facts "
+                    "needed to make the priority decision."
+    ),
+    limit: int = typer.Option(50),
+    as_json: bool = _JSON_OPT,
+    db: str = _DB_OPT,
+) -> None:
+    """Return small per-lead research jobs that can run in parallel."""
+    store = _store(db)
+    search_id = store.latest_run_id() if search == "latest" else int(search)
+    rows = store.leads(
+        min_score=1, limit=max(limit * 3, limit), search_id=search_id
+    )
+    priorities = {priority} if priority else None
+    if priority and priority not in ("high", "medium", "not_sure"):
+        raise typer.BadParameter("priority must be high, medium, or not_sure")
+    queue = research_queue(
+        store, rows, include_context=include_context, priorities=priorities
+    )[:limit]
+    if as_json:
+        _emit({"search_id": search_id, "count": len(queue), "queue": queue})
+        return
+    if not queue:
+        typer.echo("No research jobs match this search and priority.")
+        return
+    for item in queue:
+        typer.echo(
+            f"\n  {item['priority'].replace('_', ' ').upper()}  "
+            f"{item['lead_id']}  {item['name']}"
+        )
+        for job in item["jobs"]:
+            typer.echo(f"    · {job['axis'].replace('_', ' ')}: {job['query']}")
 
 
 @app.command()
@@ -561,7 +649,7 @@ def enrich(
     """Date leads automatically via RDAP (open protocol, no keys).
 
     A domain's registration year is a lower bound on business age; leads
-    with unknown age get fairly ranked by the maturity qualifier.
+    with unknown age gain useful maturity context.
     """
     store = _store(db)
     profile = _require_icp(store, icp)
@@ -598,11 +686,22 @@ def export(
     fmt: str = typer.Option("csv", "--format", help="csv or json."),
     out: str = typer.Option(None, help="Output path (default stdout)."),
     stage: str = typer.Option(None),
-    min_score: int = typer.Option(0),
+    priority: str = typer.Option(
+        None, help="Optional exact priority: high, medium, not_sure."
+    ),
     db: str = _DB_OPT,
 ) -> None:
     """Export leads (with stages/notes) for your CRM."""
-    rows = _store(db).leads(stage=stage, min_score=min_score, limit=100_000)
+    store = _store(db)
+    rows = present_leads(
+        store, store.leads(stage=stage, min_score=1, limit=100_000)
+    )
+    if priority:
+        if priority not in ("high", "medium", "not_sure"):
+            raise typer.BadParameter(
+                "priority must be high, medium, or not_sure"
+            )
+        rows = [row for row in rows if row["priority"] == priority]
     payload = to_csv(rows) if fmt == "csv" else to_json(rows)
     if out:
         Path(out).write_text(payload)

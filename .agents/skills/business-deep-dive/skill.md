@@ -1,7 +1,7 @@
 ---
 id: business-deep-dive
 name: business-deep-dive
-description: Build a compact dossier on one local business before outreach - verify it's open, cross-check its web presence beyond the homepage, socials, reviews, and how it positions itself. Use before the user calls/emails a high-value lead, when a lead looks odd (great score but something's off), or when asked "tell me more about this business".
+description: Build a compact dossier on one local business before outreach - verify it's open, cross-check its web presence, socials, reviews, and positioning. Use before calling a high-priority lead, when evidence is contradictory, or when asked "tell me more about this business".
 when_to_use: Trigger phrases - "tell me about <business>", "is this lead real", "prep me for the call with…", "research this one".
 enabled: true
 ---
@@ -26,7 +26,9 @@ review signals, stage history. Don't re-research what's recorded and fresh.
    a site OSM doesn't know: `"<name>" <city> site` - a `no_website
    (unverified)` lead sometimes has a site under a different domain, or only
    a Facebook/Instagram page (which is itself a pitch angle: "your only web
-   presence is a Facebook page"). Record what you find in a note.
+   presence is a Facebook page"). Record a confirmed official URL with
+   `leadshoot signal add <id> --key website.official_url --source web_search
+   --text "<url>" --url "<url>" --json`.
 3. **Reviews** - if not yet recorded, run the `review-research` skill.
 4. **Social footprint** - business Facebook/Instagram/LinkedIn pages: active
    or abandoned? Last-post recency is a strong "cares about marketing" signal.
@@ -42,7 +44,7 @@ review signals, stage history. Don't re-research what's recorded and fresh.
 
 ## Dossier format (to the user)
 
-> **Rose City Dental** - dentist, Lake Oswego (score 100, broken_site verified)
+> **Rose City Dental** - dentist, Lake Oswego (high, broken_site verified)
 > Site (rosecity.example) returns 500 since at least Jul 14. Google 4.7★
 > (156) - beloved, invisible online. IG active. No booking anywhere.
 > **Angle:** their reviews prove demand; a working site + booking captures it.

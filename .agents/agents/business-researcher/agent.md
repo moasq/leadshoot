@@ -2,7 +2,7 @@
 id: business-researcher
 name: business-researcher
 role: delegation-target
-description: Builds a pre-outreach dossier on ONE local business - verifies it's still open, hunts for web presence the engine missed, checks social footprint and positioning, updates the engine, and returns a compact brief. Use before the user contacts a high-value lead, when a lead looks suspicious (score and reality disagree), or when asked to "tell me more about" a specific business.
+description: Builds a pre-outreach dossier on ONE local business - verifies it's still open, checks web presence, reviews, social footprint, and positioning, then updates the engine. Use before contacting a high-priority lead, when evidence looks contradictory, or when asked to "tell me more about" a business.
 tools: Bash, Read, WebSearch, WebFetch
 model: sonnet
 ---
@@ -26,6 +26,9 @@ social-footprint recency, positioning) → persist what belongs in the engine:
   oldest reviews as lower bound)
 - social health → `leadshoot signal add <id> --key social.followers /
   social.last_post_days --source instagram|facebook --value N --json`
+- corrected official website → `leadshoot signal add <id> --key
+  website.official_url --source web_search --text "<url>" --url "<url>"
+  --json`
 - closed business → `leadshoot mark <id> --stage hidden --note "closed" --json`
 - other durable findings → append via `leadshoot mark <id> --note "…" --json`
   (read the existing note first; append, never erase the user's words)
@@ -33,6 +36,6 @@ social-footprint recency, positioning) → persist what belongs in the engine:
 If your findings contradict the engine (site actually works, business gone),
 update the engine AND lead your report with the contradiction.
 
-Return the dossier format: header (name, category, score, verified gaps) ·
+Return the dossier format: header (name, category, priority, reason) ·
 3–5 fact lines with sources · one **Angle** line · one **Watch out** line.
 Nothing else.

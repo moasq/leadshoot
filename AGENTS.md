@@ -9,12 +9,14 @@ media management (dormant accounts, tiny audiences), booking/ordering
 software, reputation management (weak or thin reviews), or any custom gap
 set. **Fit mode**: they sell a product or supply (coffee, food, equipment,
 B2B services) - leads are *healthy buyers*, where good reviews, activity,
-and maturity rank UP and nothing is flagged. The deterministic
+and maturity count as positive evidence and nothing is flagged. The deterministic
 `leadshoot niche` classifier maps the user's words to the right mode - use
 it, never guess. "Businesses without websites" is one niche, not the
 product; never present the tool as website-only. Discovery runs on open
 data, every gap is verified or honestly labeled unverified, and results
-rank by opportunity score.
+are presented as `high`, `medium`, or `not_sure` with an evidence summary,
+the unknowns that matter, and the next action. A private deterministic rank
+exists only to keep ordering stable; never show it to the user.
 
 **This directory (`.agents/`) is the single source of truth** for everything
 agent-facing. Root `AGENTS.md`, `.claude/skills/`, `.claude/agents/`, and
@@ -26,8 +28,8 @@ agent-facing. Root `AGENTS.md`, `.claude/skills/`, `.claude/agents/`, and
 | `agents.md` | This file - the canonical guide |
 | `system-prompt.md` | Condensed operating identity for agents driving LeadShoot |
 | `rules/01…05` | Binding rules: data ethics · verified-means-verified · user pipeline is sacred · outreach compliance · engineering invariants |
-| `skills/` | Playbooks: `leadshoot` (core), `icp-discovery`, `review-research`, `business-signals`, `business-deep-dive`, `outreach-prep`, `pipeline-hygiene` |
-| `agents/` | Sub-agents: `lead-scout`, `review-analyst`, `business-researcher`, `pitch-writer` |
+| `skills/` | Playbooks: `leadshoot` (core), `icp-discovery`, `quick-qualification`, `review-research`, `business-signals`, `business-deep-dive`, `outreach-prep`, `pipeline-hygiene` |
+| `agents/` | Sub-agents: `lead-scout`, `lead-qualifier`, `review-analyst`, `business-researcher`, `pitch-writer` |
 | `tasks/` | Recurring work: `weekly-recheck` |
 | `mcp.json` | MCP registration (`leadshoot mcp`) |
 
@@ -45,11 +47,15 @@ or `$LEADSHOOT_DB` / `--db`). Rediscover it every session.
    fit niche / clarify - never guess the mapping yourself), then elicit
    what its plan says is missing; then `leadshoot icp new … --json`.
    **Fit niches** (physical products, supplies, B2B services - e.g. selling
-   coffee to cafés): save with `--mode fit` - healthy buyers rank UP
+   coffee to cafés): save with `--mode fit` - healthy buyers qualify through
    (reviews, activity, maturity), nothing is flagged as a problem.
-2. `leadshoot find --icp NAME --limit 25 --json` - pulls the OSM roster,
-   live-checks every website, merges review gaps, scores, ranks. 1–3 min on
-   big areas; warn the user. **`find` auto-opens the live map** in the
+2. `leadshoot find --icp NAME --limit 25 --json` - runs the whole funnel:
+   discovers the roster, checks websites concurrently, classifies the
+   evidence, and returns both leads and a `research_queue`. For the user's
+   requested Google-first workflow, create the ICP with `--provider gmaps`
+   only after their informed choice; `find` then runs their configured gosom
+   scraper before any checks. 1–3 min on big areas; warn the user.
+   **`find` auto-opens the live map** in the
    user's browser (background server per db, reused; `live_map` in the JSON
    carries the URL) - the user watches pins land while you work. Headless/
    CI: `--no-open` or `LEADSHOOT_NO_OPEN=1`. Reopen anytime with
@@ -59,7 +65,10 @@ or `$LEADSHOOT_DB` / `--db`). Rediscover it every session.
    that search found - they never accumulate. A business rediscovered by a
    newer search is *claimed* by it (never duplicated); older searches lose
    it. History: `leadshoot searches`.
-3. Work leads: `leads` (filter `--stage --gap --min-score --search N|latest`)
+3. Qualify efficiently: pull `leadshoot research-queue --search latest
+   --json`; run its independent per-lead jobs in parallel when supported;
+   persist only verified aggregates/facts. Then work leads: `leads` (filter
+   `--stage --gap --priority --search N|latest`)
    · `show <id>` · `mark <id> --stage --note` · `review add <id> --source …
    --rating … --count …` · `recheck` · `export --format csv`.
 4. New location requested → new ICP (or re-save the same name with the new
@@ -70,7 +79,7 @@ or `$LEADSHOOT_DB` / `--db`). Rediscover it every session.
 
 **Every command takes `--json`** (strictly non-interactive) - parse, don't
 scrape text. `leadshoot options` lists valid categories, services (with gap
-weights), stages, and gaps.
+weights), stages, gaps, and priorities.
 
 **Services → targeted gaps:** `website_design` (no_website, broken_site,
 no_ssl) · `redesign` (broken_site, not_mobile, no_ssl) · `booking_setup`
@@ -80,14 +89,16 @@ Custom targeting: `--gaps` on `icp new` - but **if the user asks for
 signals/leads outside their ICP's niche, confirm before expanding it**
 (permanent `--gaps` change vs one-off research; see `icp-discovery`).
 
-**Reading results:** `score` 0–100 hottest first; `gap_flags` is the reason
-to reach out; `confidence: verified` = observed by the engine or sourced
-signal data; `unverified` = inferred (missing OSM tag, unreachable host) -
-present as unconfirmed. Signal fields (`reviews_*`, `social_followers`,
+**Reading results:** `priority` is `high`, `medium`, or `not_sure`;
+`priority_reason`, `evidence`, `research_needed`, and `next_action` explain
+the decision. `gap_flags` is the potential reason to reach out;
+`confidence: verified` = observed by the engine or sourced signal data;
+`unverified` = inferred (missing provider website, unreachable host) -
+present as unconfirmed and keep `not_sure`. Signal fields (`reviews_*`, `social_followers`,
 `social_last_post_days`, `founded_year`) appear once recorded; absence of
 signals means *unknown*, never a gap. **Maturity is a qualifier, not a
-gap:** established (3y+) businesses rank up, just-started (<1y) rank down
-(users avoid the risk), unknown age is kept but discounted
+gap:** established (3y+) businesses are better-qualified, just-started
+(<1y) are riskier, and unknown age stays visibly unknown
 (`prefer_established` on the ICP, default on).
 
 **Data providers:** the ICP's `provider` picks discovery:
@@ -102,11 +113,13 @@ gap:** established (3y+) businesses rank up, just-started (<1y) rank down
   you auto-run their configured binary → `leadshoot import-gmaps results.json
   --icp X` (or `find` on a gmaps ICP). Google review aggregates auto-land
   as signals. Never enable gmaps without the user explicitly choosing it.
+  Google queries accept any free-text business type; they are not limited to
+  the engine's OSM category dictionary.
 
 **Signals flow** (the engine itself never scrapes Google/Yelp/Instagram): you
 research public profiles with your own web tools (`review-research` and
 `business-signals` skills carry the source maps and methods), then persist
-aggregates - the lead rescored on every add:
+aggregates - the lead is reclassified on every add:
 
 ```bash
 leadshoot review add n123 --source google --rating 3.1 --count 47 --json
@@ -114,21 +127,24 @@ leadshoot signal add n123 --key business.founded_year --source website --value 2
 leadshoot signal add n123 --key social.last_post_days --source instagram --value 180 --json
 ```
 
-Scored keys: `reviews.rating`, `reviews.count`, `social.followers`,
+Qualification keys: `reviews.rating`, `reviews.count`, `social.followers`,
 `social.last_post_days`, `business.founded_year`,
+`website.official_url` (researcher-confirmed correction),
 `domain.registered_year` (auto via `leadshoot enrich` - RDAP domain lookups,
 open protocol; a maturity *floor* when founding is unknown). The live check
-also auto-detects the site platform (`site.builder` text signal) and three
+also captures official social profile links and auto-detects the site
+platform (`site.builder` text signal) and three
 more gaps: `outdated_tech` (WordPress <6 / Joomla 3 / Drupal 7),
 `diy_builder` (Wix/Squarespace/GoDaddy/Weebly/Jimdo/Duda), `slow_site`
 (>4s). Run `leadshoot enrich --icp X` after a find so unknown-age leads get
-fairly ranked. Other keys are stored (extensible) but unscored. Aggregates
+fairly qualified. Other keys are stored as context. Aggregates
 and business facts only - never review text, reviewer identities, or
 personal data.
 
 **MCP:** `leadshoot mcp` (stdio) or `--transport http --port 8322` (streamable
 HTTP at `/mcp`). Tools: status, list_options, save_icp, list_icps,
-find_leads, list_leads, get_lead, update_lead, add_review_signal, recheck,
+find_leads, get_research_queue, list_leads, get_lead, update_lead,
+add_review_signal, recheck,
 export_leads. REST + OpenAPI: `leadshoot serve` → `/api/*`, `/openapi.json`,
 map UI at `/`. Per-client setup: `INTEGRATIONS.md`.
 
@@ -152,7 +168,8 @@ python scripts/sync_agents.py               # after editing .agents/
 **Layout:** `leadshoot/store.py` (SQLite: fact tables vs user-owned tables),
 `icp.py` (profiles, category dictionary, services), `ingest.py`
 (Nominatim/Overpass, politeness), `check.py` (live site checker),
-`score.py` (gaps + opportunity score), `pipeline.py` (orchestration),
+`score.py` (private deterministic ordering), `qualify.py` (public evidence
+classification + research plans), `pipeline.py` (orchestration),
 `cli.py` (Typer), `mcp_server.py` (FastMCP), `api.py` (FastAPI + `web/`).
 
 **Invariants - binding, full text in `rules/05-engineering-invariants.md`:**

@@ -23,15 +23,16 @@ leadshoot find --icp NAME --limit 25 --json    # also ingests NEW businesses
 
 After a refresh, diff meaningfully for the user:
 
-- **Fixed their site** (gap gone, score dropped): if stage `contacted`+,
+- **Fixed their site** (gap gone / priority changed): if stage `contacted`+,
   they acted after the pitch - worth a congratulations touch or a `won`
   conversation. If `new`, it self-resolved → suggest `hidden`.
-- **Newly broken** (score jumped): fresh, timely reason to call - surface
+- **Newly broken** (priority changed to high): fresh, timely reason to call - surface
   these first.
 - **Still broken weeks later**: strengthen the note ("down 6+ weeks") -
   urgency honestly earned.
 
-Compare by capturing `leads --json` before and after (id → score/gap_flags)
+Compare by capturing `leads --json` before and after
+(`id → priority/gap_flags/evidence`)
 rather than trusting memory.
 
 ## Cleanup (each change needs the user's yes - rule 03)
@@ -46,12 +47,11 @@ rather than trusting memory.
 
 ```bash
 leadshoot export --format csv --out leads-$(date +%F).csv    # incl. stages/notes
-leadshoot export --format json --min-score 50                # filtered handoff
+leadshoot export --format json --priority high               # filtered handoff
 ```
 
-CSV columns include reviews_rating/count and the user's stage/note - a CRM
-import loses nothing. Keep the ODbL attribution with any dataset that leaves
-the tool ("Data © OpenStreetMap contributors (ODbL)").
+CSV columns include priority, reason, evidence, research-needed,
+reviews_rating/count, and the user's stage/note.
 
 ## Cadence
 

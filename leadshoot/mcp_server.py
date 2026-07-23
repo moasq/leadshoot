@@ -15,6 +15,8 @@ from . import OSM_ATTRIBUTION
 from .export import to_csv, to_json
 from .icp import CATEGORIES, GAP_WEIGHTS, ICP, SERVICES, infer_gaps
 from .pipeline import apply_signal_update, enrich_domain_age
+from .pipeline import (attribution_for, funnel_payload, present_leads,
+                       research_queue)
 from .pipeline import find_leads as run_find
 from .pipeline import import_gmaps as run_import_gmaps
 from .pipeline import recheck as run_recheck
@@ -33,8 +35,9 @@ def build_server(db: str | None = None, host: str = "127.0.0.1",
             "(no/broken/insecure site), redesigns (outdated tech, DIY "
             "builders, slow), social media (dormant accounts), booking "
             "software (no online booking), reputation (weak reviews), or a "
-            "custom gap set. Verified live on open data, ranked by "
-            "opportunity. Call status first. If no ICP exists, elicit one: "
+            "custom gap set. Verified live, then prioritized by evidence as "
+            "high, medium, or not sure. Call status first. If no "
+            "ICP exists, elicit one: "
             "what service they sell (this infers the gaps), where they "
             "work, which business categories, whether to exclude chains - "
             "then save_icp. Businesses only, no email harvesting. "
@@ -74,6 +77,7 @@ def build_server(db: str | None = None, host: str = "127.0.0.1",
             "categories": sorted(CATEGORIES),
             "services": {s: infer_gaps(s) for s in SERVICES},
             "stages": list(STAGES),
+            "priorities": ["high", "medium", "not_sure"],
         }
 
     @mcp.tool()
@@ -82,8 +86,9 @@ def build_server(db: str | None = None, host: str = "127.0.0.1",
         words for what they sell into a targeting plan. Returns mode
         ('gaps' = find businesses with fixable problems; 'fit' = find
         healthy BUYERS for a product/supply niche where good reviews and
-        maturity rank UP; 'clarify' = ask the returned questions and re-run),
-        plus suggested buyer categories, the explanation to give the user
+        maturity are positive evidence; 'clarify' = ask the returned
+        questions and re-run), plus suggested buyer categories, the
+        explanation to give the user
         ('say'), and what still needs asking ('ask'). Same input always
         returns the same plan - use it instead of guessing, then save_icp
         with its mode/service/categories once the user confirms."""
@@ -98,7 +103,7 @@ def build_server(db: str | None = None, host: str = "127.0.0.1",
         categories: list[str],
         service: str = "website_design",
         exclude_chains: bool = True,
-        min_score: int = 30,
+        min_priority: str = "not_sure",
         gaps: list[str] | None = None,
         prefer_established: bool = True,
         provider: str = "osm",
@@ -107,17 +112,19 @@ def build_server(db: str | None = None, host: str = "127.0.0.1",
         """Create or update an ICP (ideal customer profile). `service` infers
         which gaps to target and their weights. Pass `gaps` to customize
         targeting - ONLY after the user explicitly confirmed targeting
-        outside their niche. prefer_established ranks 3y+ businesses above
+        outside their niche. prefer_established qualifies 3y+ businesses above
         just-started and unknown-age ones (most users avoid new-business
         risk). provider: 'osm' (default, open data), 'overture' (big open
         data), or 'gmaps' (opt-in - the user's own gosom scraper; against
         Google ToS, requires the user's explicit informed choice). mode:
         'gaps' (default) or 'fit' for product/supply niches where healthy
-        buyers rank up and nothing is flagged - identify_niche suggests it.
+        buyers qualify through positive evidence and nothing is flagged -
+        identify_niche suggests it.
         Returns the saved ICP."""
         icp = ICP(name=name, area=area, categories=categories,
                   service=service, gaps=list(gaps or []),
-                  exclude_chains=exclude_chains, min_score=min_score,
+                  exclude_chains=exclude_chains,
+                  min_priority=min_priority,
                   prefer_established=prefer_established, provider=provider,
                   mode=mode)
         store = _store()
@@ -132,10 +139,11 @@ def build_server(db: str | None = None, host: str = "127.0.0.1",
     @mcp.tool()
     def find_leads(icp_name: str | None = None, limit: int = 25,
                    open_ui: bool = True) -> dict:
-        """Find fresh leads for an ICP: pulls the OSM roster, live-checks
-        every website, scores the gaps, and returns ranked leads. Excludes
-        anything the user already contacted/won/hidden. May take a minute
-        for large areas.
+        """Run the lead funnel for an ICP: discover the roster (Google Maps
+        first when the user selected the gmaps provider), live-check websites
+        concurrently, classify leads as high/medium/not_sure, and return the
+        quick-research queue. Excludes anything already worked. May take a
+        minute for large areas.
 
         By default this also opens the live map in the user's browser so
         they watch pins land while the search runs (open_ui=False or
@@ -148,25 +156,35 @@ def build_server(db: str | None = None, host: str = "127.0.0.1",
 
             map_url = ensure_ui(db)   # best-effort, never raises
         leads = run_find(store, icp, limit=limit)
-        return {"attribution": OSM_ATTRIBUTION, "count": len(leads),
+        return {"attribution": attribution_for(icp),
                 "search_id": store.latest_run_id(), "live_map": map_url,
-                "leads": leads}
+                **funnel_payload(store, leads, icp)}
 
     @mcp.tool()
     def list_leads(
         stage: str | None = None,
         gap: str | None = None,
-        min_score: int = 0,
+        priority: str | None = None,
         limit: int = 50,
         search_id: int | None = None,
     ) -> list[dict]:
         """Leads already in the database (the user's working pipeline).
         Filter by stage (new/contacted/interested/won/lost/hidden), gap flag
         (broken_site/no_website/no_ssl/not_mobile/no_booking/weak_reviews/
-        few_reviews), score, or search_id (scope to one search version -
-        each find is a numbered search that owns exactly what it found)."""
-        return _store().leads(stage=stage, gap=gap, min_score=min_score,
-                              limit=limit, search_id=search_id)
+        few_reviews), qualitative priority, or search_id (scope to one
+        numbered search)."""
+        if priority and priority not in ("high", "medium", "not_sure"):
+            raise ValueError("priority must be high, medium, or not_sure")
+        store = _store()
+        rows = present_leads(
+            store, store.leads(
+                stage=stage, gap=gap, min_score=1,
+                limit=max(limit * 3, limit), search_id=search_id,
+            )
+        )
+        if priority:
+            rows = [row for row in rows if row["priority"] == priority]
+        return rows[:limit]
 
     @mcp.tool()
     def list_searches(limit: int = 20) -> list[dict]:
@@ -179,7 +197,8 @@ def build_server(db: str | None = None, host: str = "127.0.0.1",
     def update_lead(business_id: str, stage: str | None = None,
                     note: str | None = None) -> dict:
         """Update the user's pipeline for one lead: stage and/or note.
-        Facts (site status, score) are engine-owned and can't be set here."""
+        Facts (site status and qualification) are engine-owned and can't be
+        set here."""
         ok = _store().mark(business_id, stage=stage, note=note)
         if not ok:
             raise ValueError(f"No business with id {business_id}")
@@ -192,24 +211,25 @@ def build_server(db: str | None = None, host: str = "127.0.0.1",
         """Import a gosom/google-maps-scraper results file (JSON or CSV) the
         USER produced themselves, as a versioned search: LeadShoot live-checks
         every listed website, auto-records Google review aggregates as
-        signals, scores gaps, and returns ranked leads. Only offer this when
-        the user explicitly wants Google Maps data - scraping it violates
-        Google's ToS and is their informed choice. Harvested emails in the
-        file are refused."""
+        signals, qualifies leads, and returns the research queue. Only offer
+        this when the user explicitly wants Google Maps data - scraping it
+        violates Google's ToS and is their informed choice. Harvested emails
+        in the file are refused."""
         store = _store()
         icp = _icp(store, icp_name)
         leads = run_import_gmaps(store, icp, file_path, limit=limit,
                                  fallback_category=fallback_category)
-        return {"count": len(leads), "leads": leads}
+        return funnel_payload(store, leads, icp)
 
     @mcp.tool()
     def get_lead(business_id: str) -> dict:
         """Full detail for one lead: facts, gap flags, recorded review
         signals, and the user's stage/note."""
-        biz = _store().get_business(business_id)
+        store = _store()
+        biz = store.get_business(business_id)
         if biz is None:
             raise ValueError(f"No business with id {business_id}")
-        return biz
+        return present_leads(store, [biz])[0]
 
     @mcp.tool()
     def add_signal(
@@ -222,21 +242,24 @@ def build_server(db: str | None = None, host: str = "127.0.0.1",
         note: str = "",
         icp_name: str | None = None,
     ) -> dict:
-        """Record ONE researched signal about a business and rescore the
-        lead. Scored keys: reviews.rating (0-5), reviews.count,
-        social.followers, social.last_post_days, business.founded_year.
-        Any other key is stored but not scored (extensible). Sources:
+        """Record ONE researched signal about a business and reclassify the
+        lead. Qualification keys: reviews.rating (0-5), reviews.count,
+        social.followers, social.last_post_days, business.founded_year, and
+        website.official_url (pass the URL as text and url to correct a
+        missing provider website).
+        Any other key is stored as context (extensible). Sources:
         google, yelp, instagram, facebook, website, registry, linkedin, ….
         Aggregates and public business facts ONLY - never review text,
         reviewer identities, or personal data. Unknown is never a gap;
-        unknown founding age ranks below established. Returns the rescored
+        unknown founding age is reported honestly. Returns the reclassified
         lead."""
         store = _store()
         if not store.add_signal(business_id, key, source, value=value,
                                 text=text, url=url, note=note):
             raise ValueError(f"No business with id {business_id}")
         icp = _icp(store, icp_name)
-        return apply_signal_update(store, icp, business_id)
+        lead = apply_signal_update(store, icp, business_id)
+        return present_leads(store, [lead], icp)[0]
 
     @mcp.tool()
     def add_review_signal(
@@ -250,7 +273,7 @@ def build_server(db: str | None = None, host: str = "127.0.0.1",
     ) -> dict:
         """Convenience wrapper over add_signal for review aggregates:
         records reviews.rating and/or reviews.count from one source and
-        rescores. Same rules: aggregates only, never review text or
+        reclassifies. Same rules: aggregates only, never review text or
         reviewer identities."""
         store = _store()
         if not store.add_review_signal(business_id, source, rating=rating,
@@ -258,14 +281,41 @@ def build_server(db: str | None = None, host: str = "127.0.0.1",
                                        note=note):
             raise ValueError(f"No business with id {business_id}")
         icp = _icp(store, icp_name)
-        return apply_signal_update(store, icp, business_id)
+        lead = apply_signal_update(store, icp, business_id)
+        return present_leads(store, [lead], icp)[0]
+
+    @mcp.tool()
+    def get_research_queue(
+        search_id: int | None = None,
+        priority: str | None = None,
+        include_context: bool = False,
+        limit: int = 50,
+    ) -> dict:
+        """Get independent, bounded research jobs for parallel qualification.
+        By default these are only decision-blocking checks (website presence,
+        social activity, reviews, or age). Set include_context for extra
+        outreach context. Persist findings with add_signal/add_review_signal;
+        the lead is reclassified immediately."""
+        if priority and priority not in ("high", "medium", "not_sure"):
+            raise ValueError("priority must be high, medium, or not_sure")
+        store = _store()
+        if search_id is None:
+            search_id = store.latest_run_id()
+        rows = store.leads(
+            min_score=1, limit=max(limit * 3, limit), search_id=search_id
+        )
+        queue = research_queue(
+            store, rows, include_context=include_context,
+            priorities={priority} if priority else None,
+        )[:limit]
+        return {"search_id": search_id, "count": len(queue), "queue": queue}
 
     @mcp.tool()
     def enrich_leads(icp_name: str | None = None, limit: int = 50) -> dict:
         """Automatically date leads via RDAP domain-registration lookups
         (open protocol, no keys, polite). Domain age is a lower bound for
-        business age - after this, 'age unknown' leads rank fairly under the
-        maturity qualifier. Run it after a find when many leads show no
+        business age - after this, 'age unknown' leads gain maturity context.
+        Run it after a find when many leads show no
         founded year."""
         store = _store()
         icp = _icp(store, icp_name)
@@ -282,10 +332,17 @@ def build_server(db: str | None = None, host: str = "127.0.0.1",
 
     @mcp.tool()
     def export_leads(format: str = "csv", stage: str | None = None,
-                     min_score: int = 0) -> str:
+                     priority: str | None = None) -> str:
         """Export leads (with stages/notes) as CSV or JSON text for the
         user's CRM. Output includes the required OSM attribution."""
-        rows = _store().leads(stage=stage, min_score=min_score, limit=100_000)
+        if priority and priority not in ("high", "medium", "not_sure"):
+            raise ValueError("priority must be high, medium, or not_sure")
+        store = _store()
+        rows = present_leads(
+            store, store.leads(stage=stage, min_score=1, limit=100_000)
+        )
+        if priority:
+            rows = [row for row in rows if row["priority"] == priority]
         return to_csv(rows) if format == "csv" else to_json(rows)
 
     return mcp

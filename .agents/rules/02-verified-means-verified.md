@@ -7,8 +7,8 @@ LeadShoot's core promise is that a flagged gap is real. Never weaken the ladder:
   recorded source says so.
 - `confidence: unverified` - inferred, not observed: a missing OSM website
   tag (measured only ~44% precise) or a host that resolves but doesn't answer
-  (may be bot defense). Unverified scores are discounted and must be
-  *presented* as unconfirmed: say "likely has no website (unconfirmed)",
+  (may be bot defense). Unverified candidates remain `not_sure` and must be
+  *presented* as unconfirmed: say "I couldn't confirm a website",
   never "has no website".
 - WAF/bot-defense responses (401/403/405/406/429) mean the site is **alive**
   (`protected`) - never call it broken, never pitch a fix for it.

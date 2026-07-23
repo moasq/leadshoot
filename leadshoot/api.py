@@ -15,6 +15,8 @@ from . import OSM_ATTRIBUTION, __version__
 from .export import to_csv, to_json
 from .icp import ICP
 from .pipeline import apply_signal_update, enrich_domain_age
+from .pipeline import (attribution_for, funnel_payload, present_leads,
+                       research_queue)
 from .pipeline import find_leads as run_find
 from .pipeline import import_gmaps as run_import_gmaps
 from .pipeline import recheck as run_recheck
@@ -29,7 +31,7 @@ class ICPBody(BaseModel):
     categories: list[str]
     service: str = "website_design"
     exclude_chains: bool = True
-    min_score: int = 30
+    min_priority: str = "not_sure"
     provider: str = "osm"
     mode: str = "gaps"
 
@@ -107,6 +109,7 @@ def create_app(db: str | None = None) -> FastAPI:
             "services": {s: infer_gaps(s) for s in SERVICES},
             "stages": list(STAGES),
             "gaps": sorted(GAP_WEIGHTS),
+            "priorities": ["high", "medium", "not_sure"],
         }
 
     @app.get("/api/niche")
@@ -117,10 +120,19 @@ def create_app(db: str | None = None) -> FastAPI:
 
     @app.get("/api/leads")
     def api_leads(stage: str | None = None, gap: str | None = None,
-                  min_score: int = 0, limit: int = 500,
+                  priority: str | None = None, limit: int = 500,
                   search_id: int | None = None) -> dict:
-        rows = store().leads(stage=stage, gap=gap, min_score=min_score,
-                             limit=limit, search_id=search_id)
+        if priority and priority not in ("high", "medium", "not_sure"):
+            raise HTTPException(
+                400, "priority must be high, medium, or not_sure"
+            )
+        s = store()
+        rows = s.leads(stage=stage, gap=gap, min_score=1,
+                       limit=max(limit * 3, limit), search_id=search_id)
+        rows = present_leads(s, rows)
+        if priority:
+            rows = [row for row in rows if row["priority"] == priority]
+        rows = rows[:limit]
         return {"attribution": OSM_ATTRIBUTION, "count": len(rows),
                 "leads": rows}
 
@@ -133,7 +145,17 @@ def create_app(db: str | None = None) -> FastAPI:
         """Gaps + stages present in the current scope, with counts - the
         UI's filter options are built from this, so it offers only what the
         data actually contains (not the full vocabulary)."""
-        return store().facets(search_id)
+        s = store()
+        facets = s.facets(search_id)
+        rows = present_leads(
+            s, s.leads(min_score=1, limit=100_000, search_id=search_id)
+        )
+        facets["priorities"] = {
+            priority: sum(1 for row in rows if row["priority"] == priority)
+            for priority in ("high", "medium", "not_sure")
+            if any(row["priority"] == priority for row in rows)
+        }
+        return facets
 
     @app.get("/api/stream")
     async def api_stream(request: Request) -> StreamingResponse:
@@ -173,10 +195,11 @@ def create_app(db: str | None = None) -> FastAPI:
 
     @app.get("/api/leads/{business_id}")
     def api_get_lead(business_id: str) -> dict:
-        biz = store().get_business(business_id)
+        s = store()
+        biz = s.get_business(business_id)
         if biz is None:
             raise HTTPException(404, f"no business {business_id}")
-        return biz
+        return present_leads(s, [biz])[0]
 
     @app.post("/api/leads/{business_id}/reviews")
     def api_add_review(business_id: str, body: ReviewBody) -> dict:
@@ -187,7 +210,8 @@ def create_app(db: str | None = None) -> FastAPI:
                                    url=body.url, note=body.note):
             raise HTTPException(404, f"no business {business_id}")
         icp = _icp(s, body.icp_name)
-        return apply_signal_update(s, icp, business_id)
+        lead = apply_signal_update(s, icp, business_id)
+        return present_leads(s, [lead], icp)[0]
 
     @app.post("/api/leads/{business_id}/signals")
     def api_add_signal(business_id: str, body: SignalBody) -> dict:
@@ -197,7 +221,8 @@ def create_app(db: str | None = None) -> FastAPI:
                             url=body.url, note=body.note):
             raise HTTPException(404, f"no business {business_id}")
         icp = _icp(s, body.icp_name)
-        return apply_signal_update(s, icp, business_id)
+        lead = apply_signal_update(s, icp, business_id)
+        return present_leads(s, [lead], icp)[0]
 
     @app.patch("/api/leads/{business_id}")
     def api_mark(business_id: str, body: LeadPatch) -> dict:
@@ -213,8 +238,8 @@ def create_app(db: str | None = None) -> FastAPI:
         s = store()
         icp = _icp(s, body.icp_name)
         leads = run_find(s, icp, limit=body.limit)
-        return {"attribution": OSM_ATTRIBUTION, "count": len(leads),
-                "leads": leads}
+        return {"attribution": attribution_for(icp),
+                **funnel_payload(s, leads, icp)}
 
     @app.post("/api/import/gmaps")
     def api_import_gmaps(body: ImportBody) -> dict:
@@ -225,7 +250,30 @@ def create_app(db: str | None = None) -> FastAPI:
                                      fallback_category=body.fallback_category)
         except FileNotFoundError:
             raise HTTPException(404, f"file not found: {body.path}")
-        return {"count": len(leads), "leads": leads}
+        return funnel_payload(s, leads, icp)
+
+    @app.get("/api/research/queue")
+    def api_research_queue(
+        search_id: int | None = None,
+        priority: str | None = None,
+        include_context: bool = False,
+        limit: int = 50,
+    ) -> dict:
+        if priority and priority not in ("high", "medium", "not_sure"):
+            raise HTTPException(
+                400, "priority must be high, medium, or not_sure"
+            )
+        s = store()
+        if search_id is None:
+            search_id = s.latest_run_id()
+        rows = s.leads(
+            min_score=1, limit=max(limit * 3, limit), search_id=search_id
+        )
+        queue = research_queue(
+            s, rows, include_context=include_context,
+            priorities={priority} if priority else None,
+        )[:limit]
+        return {"search_id": search_id, "count": len(queue), "queue": queue}
 
     @app.post("/api/leads/recheck")
     def api_recheck(body: SearchBody) -> dict:
@@ -255,14 +303,23 @@ def create_app(db: str | None = None) -> FastAPI:
 
     @app.get("/api/export")
     def api_export(format: str = "csv", stage: str | None = None,
-                   gap: str | None = None, min_score: int = 0,
+                   gap: str | None = None, priority: str | None = None,
                    search_id: int | None = None) -> Response:
         """Download the current pipeline as a file. Returns an attachment
         (Content-Disposition) with the right media type, so a browser saves
         it instead of rendering raw text over the map. Honors the same
         filters as the leads view."""
-        rows = store().leads(stage=stage, gap=gap, min_score=min_score,
-                             search_id=search_id, limit=100_000)
+        if priority and priority not in ("high", "medium", "not_sure"):
+            raise HTTPException(
+                400, "priority must be high, medium, or not_sure"
+            )
+        s = store()
+        rows = present_leads(
+            s, s.leads(stage=stage, gap=gap, min_score=1,
+                       search_id=search_id, limit=100_000)
+        )
+        if priority:
+            rows = [row for row in rows if row["priority"] == priority]
         if format == "json":
             body, media, ext = to_json(rows), "application/json", "json"
         else:

@@ -9,12 +9,13 @@ intervalMinutes: 10080
 Run the `pipeline-hygiene` skill against every saved ICP:
 
 1. `leadshoot status` → for each ICP name:
-2. Capture `leadshoot leads --json` (id → score/gap_flags) as the before-state.
+2. Capture `leadshoot leads --json`
+   (`id → priority/gap_flags/evidence`) as the before-state.
 3. `leadshoot recheck --icp <name> --json`.
 4. Diff and report ONLY meaningful changes:
    - leads whose site got FIXED (gap gone) - if staged contacted+, suggest a
      follow-up touch; if new, suggest hiding.
-   - leads newly BROKEN (score jumped) - timely reasons to call, surface first.
+   - leads newly BROKEN (priority became high) - surface first.
 5. Never change stages or notes yourself; propose changes to the user.
 
 If the last full `find` is older than 30 days, recommend one (it also picks

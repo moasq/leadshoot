@@ -9,7 +9,8 @@ enabled: true
 
 # ICP discovery - one deterministic call, then a short interview
 
-An ICP = mode + area + categories + service/gaps + exclusions + min_score.
+An ICP = mode + area + categories + service/gaps + exclusions + minimum
+qualitative priority.
 The niche identifier does the classification; you do the conversation.
 Keep the interview under a minute.
 
@@ -27,7 +28,7 @@ voice) and `ask` (what's still missing). Three outcomes:
   gap weights from the plan.
 - **mode=fit** - they sell a product or supply (coffee, equipment, food,
   B2B services). Leads are HEALTHY BUYERS: good reviews, activity, and
-  maturity rank UP; nothing gets flagged as broken. Save with `--mode fit`
+  maturity qualify the buyer; nothing gets flagged as broken. Save with `--mode fit`
   and the suggested buyer categories.
 - **mode=clarify** - ask the plan's questions verbatim, then re-run
   `leadshoot niche` with the richer description. Never invent a mapping the
@@ -48,9 +49,10 @@ voice) and `ask` (what's still missing). Three outcomes:
    or insecure - right?"
 2. **"Where do you work?"** → `--area "City, Region"`. If they serve several
    cities, one ICP per city (named `<city>-<service>`).
-3. **"Which business types?"** → `--categories`. Validate every category
-   against `leadshoot options --json`; offer close matches for unknowns
-   ("hair salon" → `salon`). If they say "any", pick the 4–6 densest
+3. **"Which business types?"** → `--categories`. For OSM/Overture, validate
+   every category against `leadshoot options --json`; offer close matches
+   for unknowns ("hair salon" → `salon`). Google Maps ICPs accept any
+   free-text business type. If they say "any", pick the 4–6 densest
    local-service categories for their service (restaurants, salons, dentists,
    plumbers, cafes, car repair).
 4. **"Skip chains and franchises?"** → default yes; only ask if their service
@@ -61,18 +63,21 @@ voice) and `ask` (what's still missing). Three outcomes:
 ```bash
 # gap niche
 leadshoot icp new --name portland-web --area "Portland, OR" \
-  --categories dentist,salon,cafe --service website_design --json
+  --categories dentist,salon,cafe --service website_design \
+  --provider gmaps --json
 # fit niche (product/supply seller)
 leadshoot icp new --name pdx-coffee --area "Portland, OR" \
-  --categories cafe,restaurant,bakery --mode fit --json
+  --categories cafe,restaurant,bakery --mode fit --provider gmaps --json
 ```
 
 Echo back the saved profile in plain words, including which gaps will be
-targeted and the min score (default 30). Offer: "Want me to run the first
-find now? It'll take a minute or two."
+targeted and the minimum priority. Google Maps is the high-coverage first
+choice only after the user explicitly accepts the terms tradeoff; otherwise
+offer Overture, then OSM. Offer: "Want me to run the first find now? It'll
+take a minute or two."
 
 Default qualifiers: `prefer_established` is ON - established (3y+)
-businesses rank above just-started and unknown-age ones, because most users
+businesses qualify above just-started and unknown-age ones, because most users
 avoid new-business risk. If the user *wants* brand-new businesses, save with
 `--no-prefer-established`.
 
@@ -88,13 +93,14 @@ confirm before acting:
 
 Permanent expansion → re-save the ICP with a custom `--gaps` list (weights
 fill in automatically). One-off → research and record signals (they're kept
-and shown) but leave the ICP alone - the score only reflects targeted gaps.
+and shown) but leave the ICP alone - priority only reflects targeted gaps.
 
 ## Refinement (existing ICP feels off)
 
-- Too few leads → add categories, widen area, or lower `--min-score`.
+- Too few leads → add categories, widen area, or set
+  `--min-priority not_sure`.
 - Wrong kind of leads → wrong `service`; re-save with the right one
   (same name overwrites; leads and pipeline are untouched).
-- Ranking ignores maturity/reviews/social you researched → those gaps aren't
+- Qualification ignores maturity/reviews/social you researched → those gaps aren't
   in the ICP; confirm expansion as above.
 - Never delete an ICP without explicit confirmation - see rule 03.

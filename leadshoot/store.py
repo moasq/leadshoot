@@ -18,17 +18,20 @@ DEFAULT_DB = "leadshoot.db"
 
 STAGES = ("new", "contacted", "interested", "won", "lost", "hidden")
 
-# well-known signal keys - the engine scores these; any other key is stored
-# and carried along (extensible), it just doesn't affect the score yet.
+# Well-known signal keys affect qualification or public context. Any other
+# key is still stored and carried along (extensible).
 K_RATING = "reviews.rating"
 K_REVIEW_COUNT = "reviews.count"
 K_FOLLOWERS = "social.followers"
 K_LAST_POST_DAYS = "social.last_post_days"
+K_SOCIAL_PROFILE = "social.profile"              # official-site profile links
+K_WEBSITE_URL = "website.official_url"            # researcher-confirmed site
 K_FOUNDED_YEAR = "business.founded_year"
 K_DOMAIN_YEAR = "domain.registered_year"   # RDAP: maturity lower bound
 K_BUILDER = "site.builder"                 # detected by the live check
 KNOWN_SIGNAL_KEYS = (K_RATING, K_REVIEW_COUNT, K_FOLLOWERS,
-                     K_LAST_POST_DAYS, K_FOUNDED_YEAR, K_DOMAIN_YEAR)
+                     K_LAST_POST_DAYS, K_SOCIAL_PROFILE, K_WEBSITE_URL,
+                     K_FOUNDED_YEAR, K_DOMAIN_YEAR)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS businesses (
@@ -178,6 +181,13 @@ class Store:
         result set is exactly what it found, without accumulation.
         """
         now = utcnow()
+        corrected = self.conn.execute(
+            "SELECT value_text FROM signals WHERE business_id=? AND key=? "
+            "ORDER BY observed_at DESC LIMIT 1",
+            (biz["id"], K_WEBSITE_URL),
+        ).fetchone()
+        if corrected and corrected["value_text"]:
+            biz = {**biz, "osm_website": corrected["value_text"]}
         self.conn.execute(
             """
             INSERT INTO businesses
@@ -214,7 +224,7 @@ class Store:
         site_slow: int | None = None,
         checked_at: str | None = None,
     ) -> None:
-        """Persist a check + score. checked_at defaults to now; rescores
+        """Persist a check + private rank. checked_at defaults to now; updates
         from stored facts pass the original timestamp through unchanged."""
         self.conn.execute(
             """
@@ -261,6 +271,7 @@ class Store:
         ).fetchone()
         if not exists:
             return False
+        normalized_key = key.strip().lower()
         self.conn.execute(
             """
             INSERT INTO signals
@@ -272,9 +283,18 @@ class Store:
               url=excluded.url, note=excluded.note,
               observed_at=excluded.observed_at
             """,
-            (business_id, key.strip().lower(), source.strip().lower(),
+            (business_id, normalized_key, source.strip().lower(),
              value, text, url, note, utcnow()),
         )
+        if normalized_key == K_WEBSITE_URL:
+            # `url` is provenance for most signals; only the explicit text
+            # value is the corrected official destination.
+            official = (text or "").strip()
+            if official:
+                self.conn.execute(
+                    "UPDATE businesses SET osm_website=? WHERE id=?",
+                    (official, business_id),
+                )
         self.conn.commit()
         return True
 
@@ -289,7 +309,7 @@ class Store:
         return [dict(r) for r in self.conn.execute(sql, params).fetchall()]
 
     def signal_summary(self, business_id: str) -> dict:
-        """Fold raw signals into the scored summary values.
+        """Fold raw signals into the qualification summary values.
 
         reviews_rating   count-weighted avg across sources (fallback: mean)
         reviews_count    total across sources
@@ -301,9 +321,21 @@ class Store:
         by_key: dict[str, dict[str, float]] = {}
         sources_with_reviews: set[str] = set()
         builder = None
+        social_profiles: list[str] = []
+        official_website = None
         for r in rows:
             if r["key"] == K_BUILDER and r["value_text"]:
                 builder = r["value_text"]
+            if r["key"] == K_SOCIAL_PROFILE and r["value_text"]:
+                try:
+                    values = json.loads(r["value_text"])
+                except (TypeError, ValueError):
+                    values = [r["value_text"]]
+                for value in values if isinstance(values, list) else [values]:
+                    if value and str(value) not in social_profiles:
+                        social_profiles.append(str(value))
+            if r["key"] == K_WEBSITE_URL:
+                official_website = r["value_text"]
             if r["value"] is None:
                 continue
             by_key.setdefault(r["key"], {})[r["source"]] = r["value"]
@@ -334,6 +366,8 @@ class Store:
             "founded_year": int(min(founded.values())) if founded else None,
             "domain_registered_year": int(min(domain.values())) if domain else None,
             "builder": builder,
+            "social_profiles": social_profiles,
+            "official_website": official_website,
         }
 
     # -- compatibility wrappers (review-shaped API) --
@@ -366,7 +400,7 @@ class Store:
 
     def update_gaps_score(self, business_id: str, gap_flags: list[str],
                           confidence: str, score: int) -> None:
-        """Rescore without touching check facts (used after review updates)."""
+        """Recompute private order without touching check facts."""
         self.conn.execute(
             "UPDATE businesses SET gap_flags=?, confidence=?, score=? WHERE id=?",
             (",".join(gap_flags), confidence, score, business_id),
@@ -377,9 +411,10 @@ class Store:
         row = self.conn.execute(
             """
             SELECT b.*, COALESCE(s.stage,'new') AS stage,
-                   COALESCE(s.note,'') AS note
+                   COALESCE(s.note,'') AS note, r.icp_name AS icp_name
             FROM businesses b
             LEFT JOIN lead_status s ON s.business_id=b.id
+            LEFT JOIN runs r ON r.id=b.search_id
             WHERE b.id=?
             """,
             (business_id,),
@@ -412,9 +447,11 @@ class Store:
         """
         sql = """
           SELECT b.*, COALESCE(s.stage, 'new') AS stage,
-                 COALESCE(s.note, '') AS note, s.updated_at AS stage_updated_at
+                 COALESCE(s.note, '') AS note, s.updated_at AS stage_updated_at,
+                 r.icp_name AS icp_name
           FROM businesses b
           LEFT JOIN lead_status s ON s.business_id = b.id
+          LEFT JOIN runs r ON r.id = b.search_id
           WHERE b.score >= ?
         """
         params: list = [min_score]
@@ -447,7 +484,8 @@ class Store:
         empty = {"reviews_rating": None, "reviews_count": None,
                  "reviews_sources": None, "social_followers": None,
                  "social_last_post_days": None, "founded_year": None,
-                 "domain_registered_year": None, "builder": None}
+                 "domain_registered_year": None, "builder": None,
+                 "social_profiles": [], "official_website": None}
         out = []
         for r in self.conn.execute(sql, params).fetchall():
             d = dict(r)
@@ -504,17 +542,25 @@ class Store:
         row = self.conn.execute(
             "SELECT definition FROM icp WHERE name=?", (name,)
         ).fetchone()
-        return json.loads(row["definition"]) if row else None
+        if not row:
+            return None
+        definition = json.loads(row["definition"])
+        definition.pop("min_score", None)  # legacy numeric public setting
+        definition.setdefault("min_priority", "not_sure")
+        return definition
 
     def list_icps(self) -> list[dict]:
         rows = self.conn.execute(
             "SELECT name, definition, updated_at FROM icp ORDER BY updated_at DESC"
         ).fetchall()
-        return [
-            {"name": r["name"], "updated_at": r["updated_at"],
-             **json.loads(r["definition"])}
-            for r in rows
-        ]
+        out = []
+        for r in rows:
+            definition = json.loads(r["definition"])
+            definition.pop("min_score", None)
+            definition.setdefault("min_priority", "not_sure")
+            out.append({"name": r["name"], "updated_at": r["updated_at"],
+                        **definition})
+        return out
 
     def get_setting(self, key: str, default: str | None = None) -> str | None:
         row = self.conn.execute(

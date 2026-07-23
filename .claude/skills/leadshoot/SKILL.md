@@ -23,9 +23,10 @@ always use it and parse.
 ## Core loop
 
 ```bash
-leadshoot find --icp NAME --limit 25 --json   # discovery: roster→live check→rank
+leadshoot find --icp NAME --limit 25 --json   # discover→check→classify→queue
 leadshoot searches --json                     # search history (versions)
-leadshoot leads --search latest --gap broken_site --min-score 50 --json
+leadshoot research-queue --search latest --json
+leadshoot leads --search latest --priority high --json
 leadshoot show n123 --json                    # full detail incl. review signals
 leadshoot mark n123 --stage contacted --note "called, voicemail" --json
 leadshoot recheck --icp NAME --json           # refresh facts; stages/notes safe
@@ -33,7 +34,10 @@ leadshoot enrich --icp NAME --json            # auto-date leads via RDAP (age fl
 leadshoot export --format csv --out leads.csv
 ```
 
-- `find` live-checks every site: **1–3 minutes on big areas - tell the user
+- On a `gmaps` ICP, `find` first runs the user's configured Google Maps
+  scraper; this is opt-in only because of Google's terms. On other ICPs it
+  uses the selected open-data provider.
+- `find` live-checks every listed site concurrently: **1–3 minutes on big areas - tell the user
   before running.** It auto-excludes leads already worked (stage ≠ new).
 - `find` also **auto-opens the live map** in the user's browser (the
   `live_map` field in its JSON carries the URL) - expected behavior, let it
@@ -51,18 +55,22 @@ leadshoot export --format csv --out leads.csv
 - Stages: new → contacted → interested → won | lost | hidden.
 - `leadshoot options --json` lists valid categories/services/stages/gaps -
   validate inputs against it instead of guessing.
+- The response contains `research_queue`: bounded independent jobs. Use the
+  `quick-qualification` skill and run separate leads in parallel when
+  supported.
 
 ## Presenting leads
 
-Lead: `{score, name, category, phone, address, gap_flags, confidence,
+Lead: `{priority, priority_reason, evidence, research_status,
+research_needed, next_action, name, category, phone, address, gap_flags, confidence,
 reviews_rating, reviews_count, social_followers, social_last_post_days,
 founded_year, stage, note}`.
 
-- Order by score; state the gap as the reason to call: "Rose City Dental -
-  site returns 500 (verified), has phone".
+- Present high, then medium, then not_sure. State `priority_reason`, evidence,
+  and the next action; never invent or expose a numeric score.
 - `confidence: unverified` → say "likely/unconfirmed", never assert.
-- Maturity is a qualifier baked into the score: established (3y+) ranks up,
-  just-started ranks down, unknown age is kept but discounted. Mention
+- Maturity is a qualifier: established (3y+) is stronger evidence,
+  just-started is riskier, and unknown age stays unknown. Mention
   "est. 2009" when known - it's a trust cue for the user.
 - Great reviews + broken/no site is the **hottest** combo - a beloved
   business that's invisible online. Call that out when you see it.
@@ -71,15 +79,17 @@ founded_year, stage, note}`.
 ## Signals (agent-researched facts)
 
 `leadshoot signal add <id> --key K --source S --value N --json` records what
-you researched and rescored immediately. Scored keys: reviews.rating,
+you researched and reclassifies immediately. Qualification keys: reviews.rating,
 reviews.count, social.followers, social.last_post_days,
-business.founded_year. `leadshoot signal list <id>` shows what's recorded.
+business.founded_year, and website.official_url (a sourced correction when
+the provider missed the site). `leadshoot signal list <id>` shows what's recorded.
 If the user asks for signals outside their ICP's targeting, confirm first
 (see `icp-discovery`).
 
 ## Escalate to sibling skills
 
-ICP creation/refinement → `icp-discovery` · reviews → `review-research` ·
+ICP creation/refinement → `icp-discovery` · new-result funnel →
+`quick-qualification` · reviews → `review-research` ·
 maturity & social health → `business-signals` · one-lead dossier →
 `business-deep-dive` · writing the pitch → `outreach-prep` · stale data /
 CRM handoff → `pipeline-hygiene`.

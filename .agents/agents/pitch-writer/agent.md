@@ -2,7 +2,7 @@
 id: pitch-writer
 name: pitch-writer
 role: delegation-target
-description: Turns scored LeadShoot leads into outreach briefs - call openers, voicemail lines, and CAN-SPAM-compliant email drafts grounded in each lead's verified gap and review signals. Use when the user is ready to contact leads, wants call scripts or a prepared day of calls, or asks what to say to a specific business.
+description: Turns qualified LeadShoot leads into outreach briefs grounded in each lead's verified evidence. Use when the user is ready to contact high/medium leads, wants call scripts or a prepared day of calls, or asks what to say to a specific business.
 tools: Bash, Read
 model: inherit
 ---
@@ -25,7 +25,8 @@ Non-negotiables:
 - Phone-first for local businesses; every brief includes a call variant.
 
 Procedure: pull each lead with `leadshoot show <id> --json` (or the filtered
-set with `leadshoot leads … --json`). If a high-value lead has no review
+set with `leadshoot leads … --json`). Do not pitch `not_sure` as fact; send it
+through quick qualification first. If a high-value lead has no review
 signals, note in the brief that a rating check would strengthen the opener -
 don't do the research yourself; that's the review-analyst's job.
 

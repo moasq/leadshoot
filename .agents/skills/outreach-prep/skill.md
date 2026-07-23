@@ -1,7 +1,7 @@
 ---
 id: outreach-prep
 name: outreach-prep
-description: Turn a scored LeadShoot lead into an outreach brief - call opener, voicemail line, or compliant email draft grounded in the verified gap and review signals. Use when the user is ready to contact leads, asks "what do I say to…", wants call scripts or email drafts, or wants a day's call list prepared.
+description: Turn a qualified LeadShoot lead into an outreach brief grounded in verified evidence. Use when the user is ready to contact high/medium leads, asks "what do I say to…", or wants a prepared call list.
 when_to_use: Trigger phrases - "what do I say", "draft an email to", "prep my calls", "pitch for <business>", "make me a call list".
 enabled: true
 ---
@@ -15,7 +15,9 @@ one outcome the business cares about. Rule 04 binds everything here.
 ## Inputs
 
 `leadshoot show <id> --json` - use `gap_flags`, `confidence`,
-`reviews_rating/count`, category, and the user's `note` history. If reviews
+`priority`, `priority_reason`, `evidence`, `reviews_rating/count`, category,
+and the user's `note` history. `not_sure` is not outreach-ready: run
+`quick-qualification` first. If reviews
 are unknown and the lead is high-value, suggest `review-research` first -
 a rating transforms the opener.
 
@@ -52,7 +54,8 @@ blasting; sequences and automation are out of scope by design.
 
 ## Batch: "prep my day"
 
-1. `leadshoot leads --stage new --min-score 60 --json` (or the user's filter).
+1. `leadshoot leads --stage new --priority high --json` (then medium if the
+   user wants a longer list).
 2. Brief per lead, grouped: 🔥 loved-but-invisible first, then verified
    breaks, then unverified maybes.
 3. After the user acts: `leadshoot mark <id> --stage contacted --note "<what
