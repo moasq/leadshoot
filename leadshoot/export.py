@@ -10,9 +10,12 @@ from . import OSM_ATTRIBUTION
 
 COLUMNS = [
     "id", "name", "category", "phone", "email", "address", "lat", "lon",
-    "osm_website", "site_status", "gap_flags", "confidence", "score",
+    "osm_website", "site_status", "gap_flags", "confidence", "priority",
+    "priority_reason", "research_status", "research_needed",
+    "context_missing", "evidence", "next_action",
     "reviews_rating", "reviews_count", "reviews_sources",
-    "social_followers", "social_last_post_days", "founded_year",
+    "social_followers", "social_last_post_days", "social_profiles",
+    "founded_year",
     "stage", "note", "checked_at", "search_id",
 ]
 

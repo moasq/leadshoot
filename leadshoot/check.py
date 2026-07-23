@@ -15,8 +15,9 @@ import asyncio
 import re
 import ssl
 import urllib.robotparser
-from dataclasses import dataclass
-from urllib.parse import urlsplit
+from dataclasses import dataclass, field
+from html.parser import HTMLParser
+from urllib.parse import urljoin, urlsplit
 
 import httpx
 
@@ -67,6 +68,52 @@ _BUILDER_MARKERS = (
     ("wp-content", "wordpress"), ("wp-includes", "wordpress"),
 )
 
+_SOCIAL_HOSTS = {
+    "instagram.com", "www.instagram.com",
+    "facebook.com", "www.facebook.com",
+    "tiktok.com", "www.tiktok.com",
+    "linkedin.com", "www.linkedin.com",
+    "youtube.com", "www.youtube.com",
+}
+
+
+class _LinkParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.hrefs: list[str] = []
+
+    def handle_starttag(self, tag: str,
+                        attrs: list[tuple[str, str | None]]) -> None:
+        if tag.lower() != "a":
+            return
+        for key, value in attrs:
+            if key.lower() == "href" and value:
+                self.hrefs.append(value.strip())
+
+
+def extract_social_profiles(html: str, base_url: str = "") -> list[str]:
+    """Official social profile links already exposed by the homepage.
+
+    This avoids a separate search for many leads. Share dialogs and generic
+    social homepages are discarded because they do not identify the business.
+    """
+    parser = _LinkParser()
+    parser.feed(html[:HTML_SCAN_BYTES])
+    profiles: list[str] = []
+    for href in parser.hrefs:
+        url = urljoin(base_url, href)
+        parts = urlsplit(url)
+        if parts.netloc.lower() not in _SOCIAL_HOSTS:
+            continue
+        path = parts.path.strip("/")
+        if not path or path.lower().startswith(
+                ("share", "sharer", "intent", "dialog", "login")):
+            continue
+        clean = f"{parts.scheme or 'https'}://{parts.netloc}{parts.path}"
+        if clean not in profiles:
+            profiles.append(clean)
+    return profiles
+
 
 def detect_builder(lowered_html: str) -> tuple[str | None, int]:
     """(builder name, outdated 0/1) from homepage HTML we already fetched."""
@@ -103,6 +150,7 @@ class CheckResult:
     builder: str | None = None
     outdated: int = 0
     slow: int = 0
+    social_profiles: list[str] = field(default_factory=list)
 
 
 def normalize_url(url: str) -> str:
@@ -142,7 +190,10 @@ def _full_scan(resp) -> dict:
     except Exception:
         slow = 0
     return {"is_mobile": is_mobile, "has_booking": has_booking,
-            "builder": builder, "outdated": outdated, "slow": slow}
+            "builder": builder, "outdated": outdated, "slow": slow,
+            "social_profiles": extract_social_profiles(
+                resp.text, str(getattr(resp, "url", ""))
+            )}
 
 
 def classify_code(code: int) -> str:

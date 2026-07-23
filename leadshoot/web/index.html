@@ -50,10 +50,14 @@
   tr:hover { background:var(--paper); cursor:pointer; }
   tr.fresh { animation:flash 1.2s ease-out; }
   @keyframes flash { from { background:#e3f0e8; } to { background:transparent; } }
-  .score { font-weight:600; font-variant-numeric:tabular-nums; }
   .bname { font-weight:600; font-size:14px; }
-  .score-cell { text-align:center; }
-  .score-num { font-weight:700; font-size:18px; font-variant-numeric:tabular-nums; }
+  .priority-cell { text-align:center; }
+  .priority { display:inline-block; font-size:11px; font-weight:750;
+              padding:4px 8px; border-radius:999px; text-transform:uppercase;
+              letter-spacing:.04em; white-space:nowrap; }
+  .priority.high { background:#fbe9e7; color:#a93226; }
+  .priority.medium { background:#fff3d6; color:#93630a; }
+  .priority.not_sure { background:#eef1ef; color:var(--ink-faint); }
   .conf { display:inline-block; font-size:10px; font-weight:600; padding:1px 6px;
           border-radius:5px; letter-spacing:.02em; white-space:nowrap; margin-top:3px; }
   .conf.verified { background:#e3f0e8; color:#2e7d5b; }
@@ -83,7 +87,7 @@
 </head>
 <body>
 <header>
-  <h1>LeadShoot <span>- gaps on the map</span></h1>
+  <h1>LeadShoot <span>- local lead funnel</span></h1>
   <div id="stats">loading…</div>
   <div id="live" class="off"><span class="dot"></span><span id="live-text">connecting…</span></div>
   <div class="controls">
@@ -92,8 +96,12 @@
          never hardcoded here, so every computable gap is filterable -->
     <select id="f-gap"><option value="">all gaps</option></select>
     <select id="f-stage"><option value="">all stages</option></select>
-    <input id="f-score" type="number" min="0" max="100" value="0"
-           title="min score" style="width:64px">
+    <select id="f-priority" title="priority">
+      <option value="">all priorities</option>
+      <option value="high">high</option>
+      <option value="medium">medium</option>
+      <option value="not_sure">not sure</option>
+    </select>
     <button class="primary" onclick="refresh(true)">Refresh</button>
     <button onclick="exportCsv()">Export CSV</button>
   </div>
@@ -103,15 +111,15 @@
   <div id="panel">
     <table>
       <thead><tr>
-        <th>Score</th><th>Business</th><th>What they're missing</th><th>Contact</th><th>Stage</th>
+        <th>Priority</th><th>Business</th><th>Why / what next</th><th>Contact</th><th>Stage</th>
       </tr></thead>
       <tbody id="rows"></tbody>
     </table>
     <div id="empty" style="display:none"></div>
   </div>
 </main>
-<footer>Data © OpenStreetMap contributors (ODbL). Live checks by LeadShoot.
-  Business contacts only - be a good citizen when you reach out.</footer>
+<footer>Map tiles © OpenStreetMap contributors. Lead sources can include OSM,
+  Overture, or user-run Google Maps imports. Business contacts only.</footer>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
@@ -127,11 +135,8 @@ let autoFollow = true;       // pin the newest search until the user picks one
 let autoFit = true;          // fit map to data until the user pans/zooms
 
 function pinColor(lead){
-  const gaps = (lead.gap_flags||"").split(",");
-  if (gaps.includes("no_website")) return "#c0392b";
-  if (gaps.includes("broken_site")) return "#d35400";
-  if (gaps.includes("no_ssl")) return "#d68910";
-  if (lead.gap_flags) return "#7f8c8d";
+  if (lead.priority === "high") return "#c0392b";
+  if (lead.priority === "medium") return "#d68910";
   return "#b7c4bf";
 }
 
@@ -159,7 +164,7 @@ function missingList(lead){
       else items.push(`<li><b>Website is dead</b> - domain no longer resolves</li>`);
     }
     else if (g === "no_website")
-      items.push(`<li><b>No website</b> - nothing listed anywhere${unv ? " (worth confirming)" : ""}</li>`);
+      items.push(`<li><b>No website in the source listing</b>${unv ? " - unconfirmed; quick-check before pitching" : ""}</li>`);
     else if (g === "no_ssl")
       items.push(`<li><b>No HTTPS</b> - browsers warn “Not secure”</li>`);
     else if (g === "not_mobile")
@@ -174,6 +179,10 @@ function missingList(lead){
       items.push(`<li><b>Social gone quiet</b> - no post in ${lead.social_last_post_days||"90+"} days</li>`);
     else if (g === "weak_social")
       items.push(`<li class="minor"><b>Tiny social audience</b> - ${lead.social_followers||0} followers</li>`);
+    else if (g === "social_unchecked")
+      items.push(`<li><b>Social presence not audited</b> - check their accounts to confirm a dormant or thin following</li>`);
+    else if (g === "reviews_unchecked")
+      items.push(`<li><b>Reviews not audited</b> - look them up to confirm rating and volume</li>`);
     else if (g === "outdated_tech")
       items.push(`<li><b>Outdated platform</b> - ${lead.builder||"old CMS"} needs upgrading</li>`);
     else if (g === "diy_builder")
@@ -182,32 +191,7 @@ function missingList(lead){
       items.push(`<li class="minor"><b>Slow to load</b> - over 4s to first page</li>`);
     else items.push(`<li>${g.replaceAll("_"," ")}</li>`);
   }
-  if (items.length) return `<ul class="miss">${items.join("")}</ul>`;
-  if (lead.score > 0)
-    return '<span class="muted">fit lead - healthy buyer, nothing to fix (ranked by signals)</span>';
-  return '<span class="muted">nothing - healthy web presence</span>';
-}
-
-function yearsOld(lead){
-  return lead.founded_year ? new Date().getFullYear() - lead.founded_year : null;
-}
-
-function whyLead(lead){
-  const gaps = (lead.gap_flags||"").split(",").filter(Boolean);
-  const hasSiteGap = gaps.includes("broken_site") || gaps.includes("no_website");
-  const age = yearsOld(lead);
-  if (!gaps.length) return "";
-  if ((lead.reviews_rating??0) >= 4.3 && hasSiteGap)
-    return `→ Loved but invisible: ★${lead.reviews_rating.toFixed(1)} from ${lead.reviews_count} customers, and no working site to catch them`;
-  if (age >= 3 && lead.confidence === "verified")
-    return `→ ${age} years in business - proven, and the problem is verified`;
-  if (age >= 3)
-    return `→ ${age} years in business - established, worth confirming the gap`;
-  if (lead.confidence === "verified" && lead.phone)
-    return "→ Verified problem + phone on file: call-ready";
-  if (lead.confidence === "verified")
-    return "→ Verified by a live check - safe to say it in your pitch";
-  return "";
+  return items.length ? `<ul class="miss">${items.join("")}</ul>` : "";
 }
 
 function signalLine(lead){
@@ -217,14 +201,16 @@ function signalLine(lead){
     bits.push(`<span class="est">est. ${lead.founded_year}</span>`);
   else if (lead.domain_registered_year)
     bits.push(`<span class="est" title="domain registration year - age lower bound">est. ~${lead.domain_registered_year}</span>`);
-  else if (gaps || lead.score > 0)
-    bits.push(`<span class="unknown" title="research founding year to rank risk">age?</span>`);
+  else if (gaps || lead.priority !== "not_sure")
+    bits.push(`<span class="unknown" title="research founding year to qualify business maturity">age?</span>`);
   if (lead.reviews_rating != null && !gaps.includes("weak_reviews"))
     bits.push(`★ ${lead.reviews_rating.toFixed(1)} (${lead.reviews_count||0} reviews)`);
   else if (lead.reviews_count == null && gaps)
     bits.push(`<span class="unknown" title="research reviews to qualify">reviews?</span>`);
   if (lead.social_followers != null && !gaps.includes("weak_social"))
     bits.push(`👥 ${lead.social_followers.toLocaleString()}`);
+  else if (gaps.includes("social_unchecked"))
+    bits.push(`<span class="unknown" title="audit their social accounts to confirm the gap">socials?</span>`);
   if (lead.builder && !gaps.includes("diy_builder") && !gaps.includes("outdated_tech"))
     bits.push(`⚙ ${lead.builder}`);
   if (lead.note) bits.push(`📝 ${lead.note}`);
@@ -236,6 +222,22 @@ function confBadge(lead){
   return lead.confidence === "unverified"
     ? '<div class="conf likely">unconfirmed</div>'
     : '<div class="conf verified">verified</div>';
+}
+
+function priorityBadge(lead){
+  // A long-lived UI server can briefly receive legacy/unclassified rows.
+  // Render them honestly instead of letting one row crash the entire map.
+  const priority = ["high", "medium", "not_sure"].includes(lead.priority)
+    ? lead.priority : "not_sure";
+  return `<span class="priority ${priority}">${priority.replace("_"," ")}</span>`;
+}
+
+function decisionContext(lead){
+  const needed = (lead.research_needed||[]).map(x=>x.replaceAll("_"," ")).join(", ");
+  const research = needed
+    ? `<div class="muted">Check next: ${needed}</div>` : "";
+  return `<div class="why">${lead.priority_reason||""}</div>
+          ${research}<div class="muted">${lead.next_action||""}</div>`;
 }
 
 function stageSelect(lead){
@@ -252,11 +254,11 @@ function exportCsv(){
   const params = new URLSearchParams({format:"csv"});
   const gap = document.getElementById("f-gap").value;
   const stage = document.getElementById("f-stage").value;
-  const minScore = document.getElementById("f-score").value || 0;
+  const priority = document.getElementById("f-priority").value;
   const searchId = document.getElementById("f-search").value;
   if (gap) params.set("gap", gap);
   if (stage) params.set("stage", stage);
-  if (minScore) params.set("min_score", minScore);
+  if (priority) params.set("priority", priority);
   if (searchId) params.set("search_id", searchId);
   const a = document.createElement("a");
   a.href = `/api/export?${params}`;
@@ -279,27 +281,27 @@ async function setStage(id, stage){
 
 function popupHtml(lead){
   return `<div class="popup-name">${lead.name}</div>
-    <div class="popup-meta">score ${lead.score} · ${lead.category}
+    <div class="popup-meta">${priorityBadge(lead)} · ${lead.category}
     ${missingList(lead)}${lead.phone||"no phone"}<br>
     ${lead.address||""}</div>`;
 }
 
 function rowHtml(lead){
   return `
-    <td class="score-cell"><div class="score-num">${lead.score}</div>${confBadge(lead)}</td>
+    <td class="priority-cell">${priorityBadge(lead)}${confBadge(lead)}</td>
     <td><div class="bname">${lead.name}</div>
-        <span class="muted">${lead.category} · ${lead.id}</span>
+        <span class="muted">${lead.category} · ${lead.provider||"source?"} · ${lead.id}</span>
         ${signalLine(lead)}</td>
-    <td>${missingList(lead)}<div class="why">${whyLead(lead)}</div></td>
+    <td>${missingList(lead)}${decisionContext(lead)}</td>
     <td class="muted">${lead.phone||"-"}<br>${lead.osm_website
         ? `<a href="${lead.osm_website}" target="_blank" rel="noopener">site</a>` : "no site listed"}</td>
     <td>${stageSelect(lead)}</td>`;
 }
 
 function leadChanged(prev, lead){
-  return !prev || prev.score !== lead.score || prev.gap_flags !== lead.gap_flags
+  return !prev || prev.priority !== lead.priority || prev.gap_flags !== lead.gap_flags
       || prev.stage !== lead.stage || prev.checked_at !== lead.checked_at
-      || prev.note !== lead.note;
+      || prev.note !== lead.note || prev.research_status !== lead.research_status;
 }
 
 function upsertLead(lead, {flash=false}={}){
@@ -361,7 +363,7 @@ async function loadStats(){
   const pipeline = Object.entries(s.pipeline||{})
     .map(([k,v])=>`${v} ${k}`).join(" · ") || "nothing worked yet";
   document.getElementById("stats").textContent =
-    `${s.businesses} businesses · ${s.checked} checked · ${s.with_gaps} with gaps · ${pipeline}`;
+    `${s.businesses} discovered · ${s.checked} site-checked · ${pipeline}`;
 }
 
 async function loadOptions(){
@@ -414,7 +416,7 @@ function filtersKey(){
   return [document.getElementById("f-search").value,
           document.getElementById("f-gap").value,
           document.getElementById("f-stage").value,
-          document.getElementById("f-score").value].join("|");
+          document.getElementById("f-priority").value].join("|");
 }
 
 // One render path. hard=true clears first (filter change / manual refresh);
@@ -423,11 +425,12 @@ function filtersKey(){
 async function refresh(hard=false){
   const gap = document.getElementById("f-gap").value;
   const stage = document.getElementById("f-stage").value;
-  const minScore = document.getElementById("f-score").value || 0;
+  const priority = document.getElementById("f-priority").value;
   const searchId = document.getElementById("f-search").value;
-  const params = new URLSearchParams({min_score:minScore, limit:500});
+  const params = new URLSearchParams({limit:500});
   if (gap) params.set("gap", gap);
   if (stage) params.set("stage", stage);
+  if (priority) params.set("priority", priority);
   if (searchId) params.set("search_id", searchId);
   const data = await (await fetch(`/api/leads?${params}`)).json();
 
@@ -458,7 +461,7 @@ function updateEmptyHint(){
   const hasSearches = document.getElementById("f-search").options.length > 1;
   const filtered = document.getElementById("f-gap").value ||
                    document.getElementById("f-stage").value ||
-                   (document.getElementById("f-score").value|0) > 0;
+                   document.getElementById("f-priority").value;
   empty.innerHTML = hasSearches && filtered
     ? "Nothing matches these filters - clear them to see every lead."
     : `This map is <b>live</b> - it repaints as your search commits results.<br>
@@ -502,7 +505,7 @@ document.getElementById("f-search").onchange = async () => {
 };
 document.getElementById("f-gap").onchange = () => refresh(true);
 document.getElementById("f-stage").onchange = () => refresh(true);
-document.getElementById("f-score").onchange = () => refresh(true);
+document.getElementById("f-priority").onchange = () => refresh(true);
 
 initMap();
 loadOptions().then(loadSearches).then(loadFacets).then(() => refresh(true));

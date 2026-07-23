@@ -49,6 +49,13 @@ class TestOptions:
                   "weak_social"):
             assert g in gaps
 
+    def test_map_uses_qualitative_priority_not_numeric_score(self, client):
+        html = client.get("/").text
+        assert "<th>Priority</th>" in html
+        assert 'id="f-priority"' in html
+        assert 'id="f-score"' not in html
+        assert '? lead.priority : "not_sure"' in html
+
 
 class TestLeadsFilters:
     def test_no_filter_returns_all(self, client):
@@ -64,10 +71,14 @@ class TestLeadsFilters:
         leads = client.get("/api/leads?stage=contacted").json()["leads"]
         assert [l["id"] for l in leads] == ["n0"]
 
-    def test_min_score_filter(self, client):
-        leads = client.get("/api/leads?min_score=80").json()["leads"]
-        assert {l["score"] >= 80 for l in leads} == {True}
-        assert len(leads) == 3  # 90, 85, 80
+    def test_priority_filter(self, client):
+        leads = client.get("/api/leads?priority=high").json()["leads"]
+        assert leads
+        assert {l["priority"] for l in leads} == {"high"}
+        assert all("score" not in lead for lead in leads)
+
+    def test_invalid_priority_rejected(self, client):
+        assert client.get("/api/leads?priority=urgent").status_code == 400
 
     def test_search_scope_filter(self, client):
         assert client.get("/api/leads?search_id=999").json()["count"] == 0
@@ -82,7 +93,10 @@ class TestExport:
         assert r.headers["content-type"].startswith("text/csv")
         assert 'attachment; filename="leadshoot-leads.csv"' \
             in r.headers["content-disposition"]
-        assert r.text.splitlines()[0].startswith("id,name,category")
+        header = r.text.splitlines()[0]
+        assert header.startswith("id,name,category")
+        assert "priority" in header
+        assert "score" not in header
 
     def test_json_is_an_attachment(self, client):
         r = client.get("/api/export?format=json")

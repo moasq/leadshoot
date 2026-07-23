@@ -137,6 +137,12 @@ class TestImport:
         with pytest.raises(ValueError, match="provider"):
             ICP(name="b", area="x", categories=["cafe"], provider="bing")
 
+    def test_gmaps_accepts_any_free_text_business_type(self):
+        icp = ICP(name="g", area="Brooklyn",
+                  categories=["recording studios", "commercial kitchens"],
+                  provider="gmaps", mode="fit")
+        assert icp.categories == ["recording_studios", "commercial_kitchens"]
+
     def test_review_signals_score_after_import(self, store, fixture_file):
         """Barber with 9 reviews -> few_reviews gap under reputation ICP."""
         from leadshoot.pipeline import apply_signal_update

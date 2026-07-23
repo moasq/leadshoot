@@ -1,6 +1,6 @@
 # Rule 4 - Outreach compliance
 
-LeadShoot finds and ranks; it does not send. When the user moves to outreach:
+LeadShoot finds and qualifies; it does not send. When the user moves to outreach:
 
 - **CAN-SPAM applies to all commercial email - there is no B2B exemption.**
   Any email help must include: truthful from/subject, the sender's physical

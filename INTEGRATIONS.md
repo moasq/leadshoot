@@ -25,9 +25,9 @@ the `LEADSHOOT_DB` env var so every agent sees the same pipeline.
 
 ## The universal recipe (works with literally ANY agent)
 
-No MCP? No problem. Every LeadShoot command takes `--json` and returns stable,
-parseable output - if your agent can run a shell command, it can drive the
-whole engine.
+No MCP? No problem. Agent-facing commands either return JSON directly
+(`status`, `niche`, `options`) or accept `--json`. If your agent can run a
+shell command, it can drive the whole engine.
 
 1. **Install** the CLI (Step 0 above).
 2. **Teach it**: paste [`skills/leadshoot/SKILL.md`](skills/leadshoot/SKILL.md)
@@ -43,7 +43,8 @@ leadshoot niche "I build websites"      # map the niche deterministically
 leadshoot icp new --name x --area "Portland, OR" \
     --categories dentist --service website_design --json
 leadshoot find --icp x --limit 25 --json    # also auto-opens the live map
-leadshoot leads --gap broken_site --min-score 50 --json
+leadshoot leads --gap broken_site --priority high --json
+leadshoot research-queue --search latest --json
 leadshoot mark n4544564889 --stage contacted --note "voicemail" --json
 ```
 
@@ -62,6 +63,48 @@ steps:
 - **OpenClaw** - copy the skill into its skills directory
   (`cp -r skills/leadshoot ~/.openclaw/skills/leadshoot`, or wherever your
   install keeps skills) and make sure `leadshoot` is on PATH.
+
+---
+
+## Google Maps opt-in
+
+Google discovery is never enabled automatically. It uses your own
+[gosom/google-maps-scraper](https://github.com/gosom/google-maps-scraper)
+binary and may conflict with Google's terms, so choose it only after reviewing
+that tradeoff.
+
+Configure the installed binary:
+
+```bash
+leadshoot config gosom_binary /absolute/path/to/google-maps-scraper
+```
+
+Then create a Google-backed ICP and run the normal funnel:
+
+```bash
+leadshoot icp new --name boston-social \
+  --area "Boston, Massachusetts, United States" \
+  --categories "barbershop" \
+  --service social_media \
+  --provider gmaps \
+  --mode gaps \
+  --json
+
+leadshoot find --icp boston-social --limit 25 --json
+```
+
+Google categories are free text. Google review rating and count aggregates
+from the scraper are stored as qualification signals; review text and reviewer
+identities are not retained.
+
+If you run gosom yourself, import its JSON or CSV output:
+
+```bash
+leadshoot import-gmaps results.json --icp boston-social --json
+```
+
+The import still creates a numbered search, checks listed websites, assigns
+qualitative priorities, and produces the same research queue.
 
 ---
 

@@ -1,7 +1,7 @@
 ---
 id: review-research
 name: review-research
-description: Research a lead's online reviews (Google Maps rating plus the niche's review sites - Yelp for restaurants, Healthgrades for doctors, Avvo for lawyers, Angi for trades) using your own web search/fetch tools, then persist the aggregates into LeadShoot so weak_reviews/few_reviews gaps get scored. Use when reviews matter to the pitch, when the user sells reputation management, when qualifying hot leads before outreach, or when asked "what are this business's reviews like?".
+description: Research a lead's online reviews (Google Maps rating plus the niche's review sites - Yelp for restaurants, Healthgrades for doctors, Avvo for lawyers, Angi for trades) using your own web search/fetch tools, then persist the aggregates so LeadShoot can qualify weak/thin review profiles. Use when reviews matter to the pitch, when the user sells reputation management, when qualifying leads before outreach, or when asked "what are this business's reviews like?".
 when_to_use: Trigger phrases - "check their reviews", "how are they rated", "qualify these leads", "reputation leads", after find when the ICP service is reputation_management.
 enabled: true
 ---
@@ -32,7 +32,7 @@ a one-line note. Never store review text dumps or reviewer names/identities.
      --url "<profile url>" --json
    leadshoot review add <id> --source yelp --rating 3.9 --count 87 --json
    ```
-   The lead rescored immediately: rating < 3.5 (over ≥5 reviews) →
+   The lead is reclassified immediately: rating < 3.5 (over ≥5 reviews) →
    `weak_reviews`; total < 15 → `few_reviews`. No signals → unknown, no gap.
 
 ## Niche → review sources
@@ -67,12 +67,12 @@ extraction of them, and prefer search-snippet aggregates when available.
 - **Great reviews + great site** → not a lead; mark it hidden if it keeps
   surfacing.
 - Found nothing at all? That is itself a `few_reviews`-grade insight - record
-  `--count 0 --note "no findable profiles"` so it scores and isn't
+  `--count 0 --note "no findable profiles"` so it is classified and isn't
   re-researched.
 
 ## Batch mode
 
-For "qualify my top N": iterate `leadshoot leads --min-score 50 --json`,
-research each, persist, then re-rank with `leadshoot leads --json` and present
-movers. Consider delegating per-lead research to the `review-analyst`
-sub-agent to keep the main conversation clean.
+For "qualify my leads": pull `leadshoot research-queue --search latest
+--json`, work only jobs whose axis is `reviews`, persist, then re-read
+`leadshoot leads --search latest --json` and present priority movers.
+Delegate separate leads in parallel when supported.

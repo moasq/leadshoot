@@ -1,7 +1,7 @@
 ---
 id: business-signals
 name: business-signals
-description: Research qualifier signals for LeadShoot leads - when the business started (established vs just-opened) and its social media health (followers, last post, activity) - using your own web tools, then persist them so scoring can favor established businesses and flag dormant social presence. Use when qualifying leads before outreach, when the user sells social media management, when they ask "how old is this business" or "are they active on Instagram", or when ranking feels blind to business maturity.
+description: Research qualifier signals for LeadShoot leads - when the business started and its social media health - using your own web tools, then persist them so qualitative priority can reflect established buyers and dormant social presence. Use when qualifying leads before outreach, when the user sells social media management, or when asked about business age or social activity.
 when_to_use: Trigger phrases - "are they established", "when did they open", "check their socials", "last time they posted", "followers", "qualify by age", "avoid new businesses".
 enabled: true
 ---
@@ -11,9 +11,8 @@ enabled: true
 
 **Why maturity matters:** users fear just-opened businesses (they churn, they
 haggle, they vanish). LeadShoot encodes that as a *qualifier*, not a gap:
-established (3y+) leads get a boost, just-started (<1y) a real penalty,
-**unknown age is kept but discounted** - never dropped. Your research turns
-"unknown" into a fair rank.
+established (3y+) leads are stronger candidates, just-started (<1y) are
+riskier, and **unknown age stays unknown** - never guessed or dropped.
 
 **Division of labor (rule 01):** you research public pages with your own web
 tools; the engine stores aggregates only. Business facts, never personal data.
@@ -27,10 +26,9 @@ leadshoot signal add <id> --key social.followers --source instagram --value 1240
 leadshoot signal add <id> --key social.last_post_days --source instagram --value 8 --json
 ```
 
-Scored keys: `business.founded_year`, `social.followers`,
+Qualification keys: `business.founded_year`, `social.followers`,
 `social.last_post_days` (plus `reviews.*` - see the `review-research` skill).
-Any other key is stored for the future but not scored. The lead rescored on
-every add.
+Any other key is stored as context. The lead is reclassified on every add.
 
 ## Automate the floor first: `leadshoot enrich`
 
@@ -71,7 +69,7 @@ must match. Linked-from-their-website profiles are the gold standard.
 
 - **Established + verified gap** = the dream lead: proven business, real
   problem, low risk. Say it that way.
-- **Just-started** leads rank low by design; if the user *wants* new
+- **Just-started** leads qualify lower by design; if the user *wants* new
   businesses (some do - first-website deals), set the ICP with
   `--no-prefer-established` after confirming.
 - **Inactive social + established** = classic social-media-management lead:

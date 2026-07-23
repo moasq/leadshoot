@@ -16,6 +16,17 @@ PHONE_BONUS = 5
 VERIFIED = "verified"
 UNVERIFIED = "unverified"
 
+# Offer-framed candidate placeholders. When an offer's HEADLINE gap is a
+# researched-signal gap (social or reviews) and that signal hasn't been
+# gathered yet, the lead surfaces as a candidate framed around the offer -
+# "not audited yet, go look" - instead of falling back to website framing.
+# Synthetic (never OSM/live-check facts, never user-selectable), always
+# unverified, and replaced by the real signal gap the moment it's recorded.
+SOCIAL_SIGNAL_GAPS = ("inactive_social", "weak_social")
+REVIEW_SIGNAL_GAPS = ("weak_reviews", "few_reviews")
+CANDIDATE_GAPS = ("social_unchecked", "reviews_unchecked")
+UNCHECKED_WEIGHTS = {"social_unchecked": 0.5, "reviews_unchecked": 0.5}
+
 
 def gaps_from_check(result: CheckResult, has_website_tag: bool,
                     wanted_gaps: list[str]) -> tuple[list[str], str]:
@@ -108,6 +119,30 @@ def social_gaps(followers: int | None, last_post_days: int | None,
     return [g for g in gaps if g in wanted_gaps]
 
 
+def candidate_gaps(weights: dict[str, float], summary: dict) -> list[str]:
+    """The offer's 'not audited yet' placeholder, if any.
+
+    Only the offer's headline axis (its top-weighted gap) produces a
+    placeholder, and only while no signal on that axis is recorded - so a
+    social seller sees 'social not audited', a reputation seller 'reviews
+    not audited', and a website seller sees neither. Researching the signal
+    replaces the placeholder with the real gap, or clears it if healthy.
+    This is what keeps a signal-driven pipeline framed by the offer instead
+    of collapsing to 'no website' before any research is done.
+    """
+    if not weights:
+        return []
+    top = max(weights, key=lambda g: weights[g])
+    if top in SOCIAL_SIGNAL_GAPS:
+        if summary["social_followers"] is None \
+                and summary["social_last_post_days"] is None:
+            return ["social_unchecked"]
+    elif top in REVIEW_SIGNAL_GAPS:
+        if summary["reviews_count"] is None:
+            return ["reviews_unchecked"]
+    return []
+
+
 def review_gaps(rating: float | None, count: int | None,
                 wanted_gaps: list[str]) -> list[str]:
     """Gaps derived from agent-recorded review signals.
@@ -131,7 +166,7 @@ def score(gaps: list[str], weights: dict[str, float],
           maturity_factor: float = 1.0) -> int:
     if not gaps:
         return 0
-    present = [weights.get(g, 0.0) for g in gaps]
+    present = [weights.get(g, UNCHECKED_WEIGHTS.get(g, 0.0)) for g in gaps]
     base = 100 * max(present)
     bonus = EXTRA_GAP_BONUS * max(0, len([p for p in present if p > 0]) - 1)
     total = base + bonus + (PHONE_BONUS if has_phone else 0)

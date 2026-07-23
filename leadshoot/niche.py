@@ -10,7 +10,7 @@ instead of guessing. "No website" is one rule in this table, not the product.
 Modes:
   gaps    - the lead is a business with a fixable problem the service solves
   fit     - the lead is a healthy buyer of a product/supply (nothing broken:
-            good reviews, activity, and maturity RAISE the score)
+            good reviews, activity, and maturity qualify the buyer)
   clarify - the description doesn't identify targeting yet; ask the listed
             questions and re-run
 """
@@ -63,8 +63,8 @@ _RULES: list[tuple[str, tuple[str, ...], dict]] = [
                       "creation", "community management", "social account"),
      dict(mode="gaps", service="social_media",
           say="You manage social presence, so leads have dormant or tiny "
-              "accounts. I'll need social signals recorded (I can research "
-              "them) before these gaps score.")),
+              "accounts. I'll need a quick social check before uncertain "
+              "candidates can be classified.")),
     ("booking-software", ("booking", "reservation", "scheduling",
                           "appointment", "online ordering", "ordering system",
                           "pos", "point of sale"),
@@ -75,8 +75,9 @@ _RULES: list[tuple[str, tuple[str, ...], dict]] = [
                     "local seo", "seo", "google ranking"),
      dict(mode="gaps", service="reputation_management",
           say="You improve how businesses look online, so leads have weak "
-              "or thin review profiles. Review signals score after research "
-              "or a gmaps import. Note: LeadShoot has no Google-ranking data; "
+              "or thin review profiles. Review signals arrive from a gmaps "
+              "import or a quick research pass. Note: LeadShoot has no "
+              "Google-ranking data; "
               "review strength is the honest proxy it can verify.")),
     ("design-branding", ("brand", "logo", "graphic design", "identity",
                          "design service", "visual"),

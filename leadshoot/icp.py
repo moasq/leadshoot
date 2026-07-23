@@ -77,8 +77,7 @@ SERVICES: dict[str, dict[str, float]] = {
     "booking_setup": {"no_booking": 1.0, "no_website": 0.6, "broken_site": 0.6},
     "reputation_management": {"weak_reviews": 1.0, "few_reviews": 0.8,
                               "no_website": 0.3},
-    "social_media": {"inactive_social": 1.0, "weak_social": 0.8,
-                     "no_website": 0.4},
+    "social_media": {"inactive_social": 1.0, "weak_social": 0.8},
     "general": dict(GAP_WEIGHTS),
 }
 
@@ -92,19 +91,26 @@ class ICP:
     gaps: list[str] = field(default_factory=list)
     weights: dict[str, float] = field(default_factory=dict)
     exclude_chains: bool = True
-    min_score: int = 30
+    min_priority: str = "not_sure"
     prefer_established: bool = True  # users avoid just-started businesses
     provider: str = "osm"  # osm (default) | overture (big open data) | gmaps (BYO)
     mode: str = "gaps"  # gaps (fixable-problem leads) | fit (healthy-buyer leads)
+    # Accepted only so older Python integrations/serialized ICPs still load.
+    # Public surfaces use min_priority; the funnel no longer exposes numbers.
+    min_score: int = field(default=0, repr=False)
 
     def __post_init__(self) -> None:
         self.name = self.name.strip()
         self.area = self.area.strip()
         self.categories = [normalize_category(c) for c in self.categories]
         unknown = [c for c in self.categories if c not in CATEGORIES]
-        if unknown:
+        # Google Maps accepts free-text queries, so its ICPs are intentionally
+        # open-ended. OSM/Overture need known taxonomy selectors.
+        if unknown and self.provider != "gmaps":
             raise ValueError(
-                f"unknown categories: {unknown}. Known: {sorted(CATEGORIES)}"
+                f"unknown categories for {self.provider}: {unknown}. "
+                f"Known: {sorted(CATEGORIES)}; use provider=gmaps for "
+                "free-text business types."
             )
         if self.service not in SERVICES:
             raise ValueError(
@@ -125,6 +131,10 @@ class ICP:
             raise ValueError("provider must be 'osm', 'overture', or 'gmaps'")
         if self.mode not in ("gaps", "fit"):
             raise ValueError("mode must be 'gaps' or 'fit'")
+        if self.min_priority not in ("high", "medium", "not_sure"):
+            raise ValueError(
+                "min_priority must be 'high', 'medium', or 'not_sure'"
+            )
         if self.mode == "fit":
             # fit niches sell TO healthy businesses: nothing is flagged,
             # health ranks. Gap weights are ignored by the fit scorer.
@@ -139,7 +149,7 @@ class ICP:
             "gaps": self.gaps,
             "weights": self.weights,
             "exclude_chains": self.exclude_chains,
-            "min_score": self.min_score,
+            "min_priority": self.min_priority,
             "prefer_established": self.prefer_established,
             "provider": self.provider,
             "mode": self.mode,
@@ -155,10 +165,11 @@ class ICP:
             gaps=list(d.get("gaps", [])),
             weights=dict(d.get("weights", {})),
             exclude_chains=bool(d.get("exclude_chains", True)),
-            min_score=int(d.get("min_score", 30)),
+            min_priority=d.get("min_priority", "not_sure"),
             prefer_established=bool(d.get("prefer_established", True)),
             provider=d.get("provider", "osm"),
             mode=d.get("mode", "gaps"),
+            min_score=int(d.get("min_score", 0)),
         )
 
 

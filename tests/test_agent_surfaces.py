@@ -48,6 +48,16 @@ class TestJsonCLI:
         data = _json_out(runner.invoke(app, ["leads", "--json", "--db", db]))
         assert data["count"] == 1
         assert data["leads"][0]["gap_flags"] == "broken_site"
+        assert data["leads"][0]["priority"] == "high"
+        assert "score" not in data["leads"][0]
+
+    def test_show_uses_same_public_contract(self, db):
+        lead = _json_out(
+            runner.invoke(app, ["show", "n1", "--json", "--db", db])
+        )
+        assert lead["priority"] == "high"
+        assert lead["priority_reason"]
+        assert "score" not in lead
 
     def test_mark_json_roundtrip(self, db):
         data = _json_out(runner.invoke(
@@ -94,5 +104,5 @@ class TestMCPShape:
         tools = {t.name for t in asyncio.run(server.list_tools())}
         assert {"status", "list_options", "save_icp", "list_icps",
                 "find_leads", "list_leads", "update_lead", "recheck",
-                "export_leads"} <= tools
+                "export_leads", "get_research_queue"} <= tools
         assert server.settings.port == 9999

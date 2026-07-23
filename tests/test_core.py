@@ -2,13 +2,14 @@
 
 import pytest
 
-from leadshoot.check import (BLOCKED, BROKEN, NO_SSL, PROTECTED, UNREACHABLE,
-                           WORKING, CheckResult, classify_code, normalize_url,
-                           scan_html)
+from leadshoot.check import (BLOCKED, BROKEN, NO_SITE, NO_SSL, PROTECTED,
+                           UNREACHABLE, WORKING, CheckResult, classify_code,
+                           extract_social_profiles, normalize_url, scan_html)
 from leadshoot.icp import ICP, infer_gaps, normalize_category, selectors_for
 from leadshoot.pipeline import apply_signal_update
-from leadshoot.score import (UNVERIFIED, VERIFIED, gaps_from_check, maturity,
-                           review_gaps, score, social_gaps)
+from leadshoot.score import (UNVERIFIED, VERIFIED, candidate_gaps,
+                           gaps_from_check, maturity, review_gaps, score,
+                           social_gaps)
 from leadshoot.store import Store
 
 
@@ -88,6 +89,17 @@ class TestStore:
         assert loaded.area == "Portland, OR"
         assert loaded.weights == icp.weights
 
+    def test_legacy_icp_numeric_filter_is_hidden(self, store):
+        definition = ICP(
+            name="legacy", area="Portland", categories=["dentist"]
+        ).to_dict()
+        definition["min_score"] = 60
+        definition.pop("min_priority")
+        store.save_icp("legacy", definition)
+        loaded = store.get_icp("legacy")
+        assert "min_score" not in loaded
+        assert loaded["min_priority"] == "not_sure"
+
     def test_gap_filter_no_substring_collision(self, store):
         store.upsert_business(BIZ)
         store.save_check("n1", "working", 200, 1, 1, 0,
@@ -164,6 +176,18 @@ class TestCheck:
         assert mobile == 1 and booking == 1
         mobile, booking = scan_html("<html><body>hello</body></html>")
         assert mobile == 0 and booking == 0
+
+    def test_extracts_profiles_but_not_share_links(self):
+        html = """
+        <a href="https://instagram.com/example_salon/">Instagram</a>
+        <a href="//facebook.com/example.salon">Facebook</a>
+        <a href="https://facebook.com/sharer/sharer.php?u=x">Share</a>
+        <a href="https://example.com/contact">Contact</a>
+        """
+        assert extract_social_profiles(html, "https://example.com") == [
+            "https://instagram.com/example_salon/",
+            "https://facebook.com/example.salon",
+        ]
 
 
 # ---------- gap derivation + scoring ----------
@@ -430,6 +454,61 @@ class TestSignals:
         biz = apply_signal_update(store, icp, "n1")
         assert "inactive_social" in biz["gap_flags"]
         assert biz["score"] >= 100 - 1
+
+    def test_candidate_gaps_headline_axis(self):
+        social = {"inactive_social": 1.0, "weak_social": 0.8}
+        reviews = {"weak_reviews": 1.0, "few_reviews": 0.8}
+        website = {"no_website": 0.9, "broken_site": 1.0}
+        blank = {"reviews_count": None, "reviews_rating": None,
+                 "social_followers": None, "social_last_post_days": None}
+        # the offer's headline axis decides which placeholder (if any) shows
+        assert candidate_gaps(social, blank) == ["social_unchecked"]
+        assert candidate_gaps(reviews, blank) == ["reviews_unchecked"]
+        assert candidate_gaps(website, blank) == []       # site offer: none
+        # a recorded signal on that axis retires the placeholder
+        assert candidate_gaps(social, {**blank, "social_followers": 800}) == []
+        assert candidate_gaps(reviews, {**blank, "reviews_count": 12}) == []
+
+    def test_social_media_surfaces_candidate_not_website(self, store):
+        # a social-media seller must see the lead framed by THEIR offer, not
+        # "no website", even before any social research is done.
+        store.upsert_business(BIZ)
+        store.save_check("n1", NO_SITE, None, None, None, None, [], "", 0)
+        icp = ICP(name="smm", area="portland, or", categories=["dentist"],
+                  service="social_media")
+        store.save_icp("smm", icp.to_dict())
+        biz = apply_signal_update(store, icp, "n1")
+        assert "social_unchecked" in biz["gap_flags"]
+        assert "no_website" not in biz["gap_flags"]        # offer-framed
+        assert biz["confidence"] == UNVERIFIED             # a research cue
+        assert biz["score"] >= icp.min_score               # surfaces, not cut
+        # researching the signal replaces the placeholder with the real gap
+        store.add_signal("n1", "social.last_post_days", "instagram", value=180)
+        biz = apply_signal_update(store, icp, "n1")
+        assert "inactive_social" in biz["gap_flags"]
+        assert "social_unchecked" not in biz["gap_flags"]
+        assert biz["confidence"] == VERIFIED
+
+    def test_researched_official_site_retires_false_no_website(self, store):
+        store.upsert_business({**BIZ, "osm_website": None})
+        store.save_check("n1", NO_SITE, None, None, None, None,
+                         ["no_website"], UNVERIFIED, 50)
+        icp = ICP(name="web", area="portland, or", categories=["dentist"])
+        store.save_icp("web", icp.to_dict())
+        assert store.add_signal(
+            "n1", "website.official_url", "web_search",
+            text="https://real.example", url="https://real.example",
+        )
+        biz = apply_signal_update(store, icp, "n1")
+        assert biz["osm_website"] == "https://real.example"
+        assert biz["official_website"] == "https://real.example"
+        assert "no_website" not in biz["gap_flags"]
+        # A new provider roster with the site still missing must not clobber
+        # the sourced correction.
+        store.upsert_business({**BIZ, "osm_website": None}, search_id=2)
+        store.conn.commit()
+        assert store.get_business("n1")["osm_website"] == \
+            "https://real.example"
 
     def test_migration_preserves_review_data(self, tmp_path):
         import sqlite3 as s3
