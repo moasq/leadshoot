@@ -45,10 +45,8 @@
 ## Demo
 
 <div align="center">
-  <a href="assets/leadshoot-demo.mp4">
-    <img src="assets/leadshoot-demo.jpg" width="100%" alt="Watch the 37-second LeadShoot demo" />
-  </a>
-  <p><a href="assets/leadshoot-demo.mp4"><strong>▶ Watch the 37-second demo</strong></a></p>
+  <img src="assets/leadshoot-demo.gif" width="100%" alt="LeadShoot finding and qualifying local-business leads" />
+  <p><a href="assets/leadshoot-demo.mp4"><strong>▶ Open the high-resolution video</strong></a></p>
 </div>
 
 The demo shows an agent turning a plain-English request into a local-business
