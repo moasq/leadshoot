@@ -1,0 +1,62 @@
+name: Bug report
+description: Report a reproducible LeadShoot failure
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve LeadShoot. Remove API keys, personal data,
+        private pipeline notes, review text, and reviewer identities from all
+        output before submitting.
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: Describe the failure and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction steps
+      description: Include the smallest command sequence that reproduces the problem.
+      placeholder: |
+        1. leadshoot ...
+        2. leadshoot ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: LeadShoot version or commit
+      placeholder: "0.1.0 or a Git commit"
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: "Python version, operating system, installation method"
+    validations:
+      required: true
+  - type: dropdown
+    id: interface
+    attributes:
+      label: Interface
+      options:
+        - CLI
+        - REST API
+        - MCP server
+        - Live map
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Sanitized output or logs
+      description: Paste relevant JSON or logs after removing sensitive or personal data.
+      render: shell

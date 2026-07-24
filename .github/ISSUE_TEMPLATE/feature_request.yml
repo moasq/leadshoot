@@ -1,0 +1,48 @@
+name: Feature request
+description: Propose a focused improvement to LeadShoot
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: Start with the user workflow or research problem, not the implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: niche
+    attributes:
+      label: Example niche
+      description: What does the user sell, and which local businesses do they target?
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Desired behavior
+      description: Describe what LeadShoot should do and how uncertainty should be presented.
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Relevant surface
+      multiple: true
+      options:
+        - Qualification model
+        - Data provider
+        - Research signals
+        - CLI
+        - REST API
+        - MCP server
+        - Live map
+        - Documentation
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: How do you handle this workflow today?
