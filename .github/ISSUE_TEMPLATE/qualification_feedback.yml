@@ -1,0 +1,68 @@
+name: Qualification feedback
+description: Tell us where a real lead classification felt wrong or incomplete
+title: "[Qualification]: "
+labels:
+  - qualification
+  - feedback
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Real niches are the best way to improve LeadShoot. Do not include
+        personal data, review text, reviewer identities, harvested contacts,
+        or private pipeline notes.
+  - type: textarea
+    id: offer
+    attributes:
+      label: What do you sell?
+      description: Describe the product or service in the words you gave LeadShoot.
+      placeholder: "I provide bookkeeping services to independent cafés."
+    validations:
+      required: true
+  - type: textarea
+    id: target
+    attributes:
+      label: Which businesses and place did you target?
+      placeholder: "Independent cafés in Cambridge, Massachusetts, United States"
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Which mode did LeadShoot choose?
+      options:
+        - gaps
+        - fit
+        - clarify
+        - Not sure
+    validations:
+      required: true
+  - type: dropdown
+    id: concern
+    attributes:
+      label: Which part needs improvement?
+      options:
+        - Mode or niche classification
+        - Priority
+        - Evidence
+        - Unknowns or research queue
+        - Next action
+        - Discovery coverage
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: Sanitized result
+      description: Paste the relevant lead JSON after removing sensitive or personal data.
+      render: json
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What would have been more useful?
+      description: Explain the classification or context you expected and why.
+    validations:
+      required: true

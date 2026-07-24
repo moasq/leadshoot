@@ -18,7 +18,8 @@
     <a href="#pick-your-niche">Niches</a> ·
     <a href="#how-it-works">How it works</a> ·
     <a href="#data-providers">Providers</a> ·
-    <a href="INTEGRATIONS.md">Integrations</a>
+    <a href="INTEGRATIONS.md">Integrations</a> ·
+    <a href="#help-test-leadshoot">Help test</a>
   </p>
 
   <br/>
@@ -252,6 +253,21 @@ Gap niches hunt fixable problems. Fit niches qualify healthy buyers: the
 thriving café that's worthless to a web designer can be a high-priority lead
 for a coffee roaster.
 
+### Three workflows, three different definitions of a lead
+
+LeadShoot does not apply one universal score to every local business. The
+offer determines which facts matter:
+
+| Seller | Mode | A strong candidate | What stays `not_sure` |
+|---|---|---|---|
+| Web designer targeting dentists | `gaps` | the official site was fetched and a fixable website problem was observed | a directory has no website field, but no independent check confirms the business lacks one |
+| Social-media agency targeting salons | `gaps` | an official profile is found and its public activity signal confirms a long period without posting | a likely profile exists, but its identity or latest activity has not been verified |
+| Bookkeeper targeting independent cafés | `fit` | an operating café has positive review, activity, and maturity signals | the café exists, but the public facts needed to judge buyer fit are still missing |
+
+This distinction is the core qualification model: gap mode needs evidence of
+a problem the seller can fix; fit mode needs evidence of a healthy prospective
+buyer. Missing data is never silently converted into either one.
+
 ## What a lead tells you
 
 <table>
@@ -357,10 +373,26 @@ SearXNG confirm-pass for `no_website` · deep link audits (muffet) · screenshot
 evidence (shot-scraper) · cross-provider dedupe · Geofabrik country-scale ingest ·
 PyPI (`pipx install leadshoot`)
 
+## Help test LeadShoot
+
+The most useful feedback is a real niche, a real place, and the result that
+felt wrong or incomplete. Use the
+[qualification feedback form](https://github.com/moasq/leadshoot/issues/new?template=qualification_feedback.yml)
+to report:
+
+- what you sell and which local businesses you target;
+- whether LeadShoot chose gap mode or fit mode;
+- which evidence, unknown, priority, or next action needs improvement.
+
+Please remove personal data, private notes, and review text before sharing
+output. Public business facts and aggregate review signals are enough to
+reproduce qualification problems.
+
 ## Contributing
 
-Edit `.agents/` (the single source of truth), run `python scripts/sync_agents.py`,
-keep `pytest` green:
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the complete development and pull
+request workflow. In short, edit `.agents/` when changing agent-facing
+material, run `python scripts/sync_agents.py`, and keep `pytest` green:
 
 ```bash
 python -m venv .venv && .venv/bin/pip install -e ".[dev]"
